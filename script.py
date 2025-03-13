@@ -3,6 +3,7 @@ import numpy
 import re as regExp
 import random
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
 
 #load tokens from dataset
 with open('input.txt', 'r', encoding='utf-8') as f:
@@ -39,10 +40,10 @@ W2 = torch.randn((num_neurons, num_tokens), generator=g) #outputs number of neur
 b2 = torch.randn(num_tokens, generator=g)
 parameters = [lookupTbl, W1, b1, W2, b2] #1664838 total parameters
 
-lre = torch.linspace(-3,0,1000)
-lrs = 10**lre
-lri = []
-lossi = [] #bareby
+#lre = torch.linspace(0,1,1000)
+#lrs = 10**lre
+#lri = []
+#lossi = [] #bareby
 
 for p in parameters:
     p.requires_grad = True
@@ -65,14 +66,17 @@ for i in range(1000):
     loss.backward()
 
     #update
-    lr = lrs[i]
+    #lr = lrs[i]
     for p in parameters:
-        p.data += -lr * p.grad
+        p.data += -2 * p.grad
 
-    #track stats
-    lri.append([lre[i]])
-    lossi.append(loss.item())
+    #track learning rate exponent and loss
+    #lri.append([lre[i]])
+    #lossi.append(loss.item())
 
+#plot learning rate exponents vs losses to find right learning rate to use
+#plt.plot(lri, lossi)
+#plt.show()
 
 #batch
 #sequence length - context length of how many words we take to predict the next one
