@@ -30,35 +30,34 @@ Y = torch.tensor(Y) #(237803)
     
 #create lookup table, hidden nonlinearity layer, the last layer being linear, and biases for each layer. All parameters which we'll use Use generator for 
 g = torch.Generator().manual_seed(5000)
-embed_dim = 8 #25
+embed_dim = 8 
 num_tokens = len(distTokenDict)
-num_neurons = 25
+num_neurons = 75
 lookupTbl = torch.randn((num_tokens, embed_dim),generator=g) #weight matrix where you index to each token that has an embedding of 25 dimensions. There are 13113 distinct tokens
 W1 = torch.randn((seq_length * embed_dim, num_neurons), generator=g) #100 neurons
 b1 = torch.randn(num_neurons, generator=g)
 W2 = torch.randn((num_neurons, num_tokens), generator=g) #outputs number of neurons is num_tokens since we have num_tokens possible tokens that come next 
 b2 = torch.randn(num_tokens, generator=g)
-parameters = [lookupTbl, W1, b1, W2, b2] #1664838 total parameters
+parameters = [lookupTbl, W1, b1, W2, b2] #76199 total parameters  print(sum(p.nelement() for p in parameters))
 
-#lre = torch.linspace(0,1,1000)
+
+#lre = torch.linspace(0.5,0.8,10000)
 #lrs = 10**lre
 #lri = []
-#lossi = [] #bareby
+#lossi = [] 
 
 for p in parameters:
     p.requires_grad = True
 
-for i in range(1000):
+for i in range(10000):
     #minibatch construct
-    ix = torch.randint(0, X.shape[0], (32,)) #minibatch size of 32
+    ix = torch.randint(0, X.shape[0], (500,)) #updated minibatch size 
 
     #forward pass
     emb = lookupTbl[X[ix]] # (237803, 5, 25)
     h = torch.tanh(emb.view(-1, seq_length * embed_dim) @ W1 + b1) #(237803, 100)
     logits = h @ W2 + b2
     loss = F.cross_entropy(logits, Y[ix])
-    
-    print(loss.item())
     
     #backward pass
     for p in parameters:
@@ -68,7 +67,10 @@ for i in range(1000):
     #update
     #lr = lrs[i]
     for p in parameters:
-        p.data += -2 * p.grad
+        p.data += -4 * p.grad
+        
+    if (i%500 == 0):
+        print("iteration: " + str(i) + " loss: " + str(loss.item()))
 
     #track learning rate exponent and loss
     #lri.append([lre[i]])
