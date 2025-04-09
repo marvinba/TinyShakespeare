@@ -8,28 +8,31 @@ import matplotlib.pyplot as plt
 #load tokens from dataset
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = '\n\n' + f.read();
-    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text[:50000])
+    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text[:15000])
     tokenArr = regExp.findall(r'[<]{1}[\w]+[>]{1}|[.?!,:;]|[\w]+', text) #create tokens including <Dialogue>
     distTokenDict = {token:idx for idx, token in enumerate(dict.fromkeys(tokenArr))}
+
+#print(distTokenDict)
 
 seq_length = 5
 def build_dataset(tokens):
     #load sequences from data in terms of indices
     X, Y = [], []
-    context = [0] * seq_length
+    dialogueIdx = distTokenDict['<Dialogue>']
+    context = [dialogueIdx] * seq_length
 
     for token in tokens:
         if token == '<Dialogue>':
-            context = [0] * seq_length
+            context = [dialogueIdx] * seq_length
             continue
+        
         idx = distTokenDict[token]
         X.append(context)
         Y.append(idx)
         context = context[1:] + [idx]
-
-    #print(distTokenDict)
-    X = torch.tensor(X) #(237803, 5)
-    Y = torch.tensor(Y) #(237803)
+        
+    X = torch.tensor(X) 
+    Y = torch.tensor(Y) 
     return X,Y
 
 #Training, Dev, and Testing splits
@@ -41,18 +44,22 @@ Xtest, Ytest = build_dataset(tokenArr[devEndIdx:])
 
 #create lookup table, hidden nonlinearity layer, the last layer being linear, and biases for each layer. All parameters which we'll use Use generator for 
 g = torch.Generator().manual_seed(5000)
-embed_dim = 8 
+embed_dim = 7
 num_tokens = len(distTokenDict)
-num_neurons = 75
+num_neurons1 = 10
+num_neurons2 = 11
 lookupTbl = torch.randn((num_tokens, embed_dim),generator=g) #weight matrix where you index to each token that has an embedding of 25 dimensions. There are 13113 distinct tokens
-W1 = torch.randn((seq_length * embed_dim, num_neurons), generator=g) #100 neurons
-b1 = torch.randn(num_neurons, generator=g)
-W2 = torch.randn((num_neurons, num_tokens), generator=g) #outputs number of neurons is num_tokens since we have num_tokens possible tokens that come next 
-b2 = torch.randn(num_tokens, generator=g)
-parameters = [lookupTbl, W1, b1, W2, b2] #76199 total parameters  print(sum(p.nelement() for p in parameters))
+W1 = torch.randn((seq_length * embed_dim, num_neurons1), generator=g) 
+b1 = torch.randn(num_neurons1, generator=g)
+W2 = torch.randn((num_neurons1, num_neurons2), generator=g) #outputs number of neurons is num_tokens since we have num_tokens possible tokens that come next 
+b2 = torch.randn(num_neurons2, generator=g)
+W3 = torch.randn((num_neurons2, num_tokens), generator=g) #outputs number of neurons is num_tokens since we have num_tokens possible tokens that come next 
+b3 = torch.randn(num_tokens, generator=g)
+parameters = [lookupTbl, W1, b1, W2, b2, W3, b3] #76199 total parameters  
 
+#print(sum(p.nelement() for p in parameters))
 
-#lre = torch.linspace(0.5,0.8,10000)
+#lre = torch.linspace(-0.25, 0.25,5000)
 #lrs = 10**lre
 #lri = []
 #lossi = [] 
@@ -60,14 +67,18 @@ parameters = [lookupTbl, W1, b1, W2, b2] #76199 total parameters  print(sum(p.ne
 for p in parameters:
     p.requires_grad = True
 
-for i in range(5000):
+#minLoss = 10
+#minLossIter = 0
+
+num_iterations = 30000
+for i in range(num_iterations):
     #minibatch construct
-    ix = torch.randint(0, Xtr.shape[0], (500,)) #updated minibatch size 
+    ix = torch.randint(0, Xtr.shape[0], (100,)) #updated minibatch size 
 
     #forward pass
-    emb = lookupTbl[Xtr[ix]] # (237803, 5, 25)
+    emb = lookupTbl[Xtr[ix]]
     h = torch.tanh(emb.view(-1, seq_length * embed_dim) @ W1 + b1) #(237803, 100)
-    logits = h @ W2 + b2
+    logits = (h @ W2 + b2) @ W3 + b3
     loss = F.cross_entropy(logits, Ytr[ix])
     
     #backward pass
@@ -77,16 +88,25 @@ for i in range(5000):
 
     #update
     #lr = lrs[i]
-    lr = 4
+    lr = 0.01
+
     for p in parameters:
         p.data += -lr * p.grad
         
-    #if (i%1000 == 0 or i == 6999):
+    #if (i%500 == 0 or i == (num_iterations - 1)):
     #    print("iteration: " + str(i) + " loss: " + str(loss.item()))
+
+    #update min loss
+    #if (min(minLoss, loss.item()) == loss.item()):
+    #    minLossIter = i
+    #    minLoss = min(minLoss, loss.item())
 
     #track learning rate exponent and loss
     #lri.append([lre[i]])
     #lossi.append(loss.item())
+
+
+#print ("min loss "  + str(minLoss) + " iteration " + str(minLossIter) + " learning rate " + str(lrs[minLossIter]))
 
 #batch training loss
 print("batch training loss " + str(loss.item()))
@@ -94,14 +114,14 @@ print("batch training loss " + str(loss.item()))
 #training loss
 emb = lookupTbl[Xtr] # (237803, 5, 25)
 h = torch.tanh(emb.view(-1, seq_length * embed_dim) @ W1 + b1) #(237803, 100)
-logits = h @ W2 + b2
+logits = (h @ W2 + b2) @ W3 + b3
 loss = F.cross_entropy(logits, Ytr)
 print("training set loss " + str(loss.item()))
 
 #dev loss
 emb = lookupTbl[Xdev] # (237803, 5, 25)
 h = torch.tanh(emb.view(-1, seq_length * embed_dim) @ W1 + b1) #(237803, 100)
-logits = h @ W2 + b2
+logits = (h @ W2 + b2) @ W3 + b3
 loss = F.cross_entropy(logits, Ydev)
 print("dev loss " + str(loss.item()))
 
