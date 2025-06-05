@@ -8,11 +8,11 @@ import matplotlib.pyplot as plt
 #load tokens from dataset
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = '\n\n' + f.read();
-    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text[:45000])
+    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text[:35000])
     tokenArr = regExp.findall(r'[<]{1}[\w]+[>]{1}|[.?!,:;]|[\w]+', text) #create tokens including <Dialogue>
     distTokenDict = {token:idx for idx, token in enumerate(dict.fromkeys(tokenArr))}
 
-#print(distTokenDict)
+#print("Equal probability for any token " + str(-torch.tensor(1/len(distTokenDict)).log().item()))
 
 seq_length =  6
 def build_dataset(tokens):
@@ -46,14 +46,14 @@ Xtest, Ytest = build_dataset(tokenArr[devEndIdx:])
 g = torch.Generator().manual_seed(5000)
 embed_dim = 7
 num_tokens = len(distTokenDict)
-num_neurons1 = 8
-num_neurons2 = 6
+num_neurons1 = 11
+num_neurons2 = 9
 num_neurons3 = 13
 lookupTbl = torch.randn((num_tokens, embed_dim),generator=g) #weight matrix where you index to each token that has an embedding of 25 dimensions. There are 13113 distinct tokens
-W1 = torch.randn((seq_length * embed_dim, num_neurons1), generator=g) 
-b1 = torch.randn(num_neurons1, generator=g)
-W2 = torch.randn((num_neurons1, num_tokens), generator=g) #torch.randn((num_neurons1, num_neurons2), generator=g) #outputs number of neurons is num_tokens since we have num_tokens possible tokens that come next 
-b2 = torch.randn(num_tokens, generator=g) #torch.randn(num_neurons2, generator=g)
+W1 = torch.randn((seq_length * embed_dim, num_neurons1), generator=g) * 0.1
+b1 = torch.randn(num_neurons1, generator=g) * 0.01
+W2 = torch.randn((num_neurons1, num_tokens), generator=g) * 0.06 #torch.randn((num_neurons1, num_neurons2), generator=g) #outputs number of neurons is num_tokens since we have num_tokens possible tokens that come next 
+b2 = torch.randn(num_tokens, generator=g) * 0.1 #torch.randn(num_neurons2, generator=g)
 #W3 = torch.randn((num_neurons2, num_neurons3), generator=g) #outputs number of neurons is num_tokens since we have num_tokens possible tokens that come next 
 #b3 = torch.randn(num_neurons3, generator=g)
 #W3 = torch.randn((num_neurons2, num_tokens), generator=g) #outputs number of neurons is num_tokens since we have num_tokens possible tokens that come next 
@@ -64,25 +64,29 @@ parameters = [lookupTbl, W1, b1, W2, b2]#, W3, b3] #76199 total parameters  W4, 
 
 #print(sum(p.nelement() for p in parameters))
 
-lre = torch.linspace(-1,0,30000)
-lrs = 10**lre
+#lre = torch.linspace(-1,0,30000)
+#lrs = 10**lre
 lri = []
-lossi = [] 
+lossi = []
+dlossi = [] 
+steps = []
 
 for p in parameters:
     p.requires_grad = True
 
-#minDevLoss = 10
-#minLossIter = 0
+minDevLoss = 10
+minLossIter = 0
 
 num_iterations = 30000
 for i in range(num_iterations):
     #minibatch construct
-    ix = torch.randint(0, Xtr.shape[0], (250,)) #updated minibatch size 
+    ix = torch.randint(0, Xtr.shape[0], (200,)) #updated minibatch size 
 
     #forward pass - training loss
     emb = lookupTbl[Xtr[ix]]
-    h = torch.tanh((emb.view(-1, seq_length * embed_dim) @ W1 + b1)) #(237803, 100)
+    hpreact = emb.view(-1, seq_length * embed_dim) @ W1 + b1
+    hpreact = (hpreact - hpreact.mean(0, keepdim=True))/hpreact.std(0, keepdim=True)
+    h = torch.tanh(hpreact) #(237803, 100)
     logits = h @ W2 + b2 #W3 + b3 # @ W4 + b4
     loss = F.cross_entropy(logits, Ytr[ix])
 
@@ -100,7 +104,7 @@ for i in range(num_iterations):
 
     #update
     #lr = lrs[i]
-    lr = 0.20
+    lr = 0.5
 
     for p in parameters:
         p.data += -lr * p.grad
@@ -109,16 +113,22 @@ for i in range(num_iterations):
     #    print("iteration: " + str(i) + " loss: " + str(loss.item()))
 
     #update minDev loss
-    #if (min(minDevLoss, lossDev.item()) == lossDev.item()):
-        #minLossIter = i
-        #minDevLoss = min(minDevLoss, loss.item())
+    if (min(minDevLoss, lossDev.item()) == lossDev.item()):
+        minLossIter = i
+        minDevLoss = min(minDevLoss, loss.item())
 
     #track learning rate exponent and loss
     #lri.append([lre[i]])
-    #lossi.append(lossDev.item())
+    lossi.append(loss.item())
+    dlossi.append(lossDev.item())
+    steps.append(i)
 
-
+#plt.hist(h.view(-1).tolist(), 50);
+#plt.show()
+#plt.hist(hpreact.view(-1).tolist(), 50);
+#plt.show()
 #print ("min Dev loss "  + str(minDevLoss) + " iteration " + str(minLossIter) + " learning rate exponent " + str(lre[minLossIter]) + " learning rate " + str((lrs[minLossIter])))#str(lrs[(lre[minLossIter]).item()])
+#print ("min Dev loss "  + str(minDevLoss) + " iteration " + str(minLossIter))
 
 #batch training loss
 print("batch training loss " + str(loss.item()))
@@ -139,7 +149,7 @@ print("dev loss " + str(loss.item()))
 
 
 #plot learning rate exponents vs losses to find right learning rate to use for dev loss
-#plt.plot(lri, lossi)
+#plt.plot(lri, 'g', lossi)
 #plt.show()
 
 
