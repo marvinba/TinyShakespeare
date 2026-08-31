@@ -201,6 +201,9 @@ def estimate_loss():
 
     eval_loss = torch.tensor(eval_losses).mean()
 
+    # Put model back into training mode
+    ShakespearenModel.train()
+
     return eval_loss
 
 for iter in range(max_iters):    
