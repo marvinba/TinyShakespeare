@@ -9,58 +9,16 @@ import torch.nn as nn
 #load tokens from dataset
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = '\n\n' + f.read();
-    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text[:45000])
+    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text[:100000])
     tokenArr = regExp.findall(r'[<]{1}[\w]+[>]{1}|[.?!,:;]|[\w]+', text) #create tokens including <Dialogue>
     distTokenDict = {token:idx for idx, token in enumerate(dict.fromkeys(tokenArr))}
+    token_ids = [distTokenDict[token] for token in tokenArr]
+    token_ids = torch.tensor(token_ids, dtype=torch.long)
 
-#print("Equal probability for any token " + str(-torch.tensor(1/len(distTokenDict)).log().item()))
-
-seq_length =  7
-def build_dataset(tokens):
-    #load sequences from data in terms of indices
-    X, Y = [], []
-    dialogueIdx = distTokenDict['<Dialogue>']
-    context = [dialogueIdx] * seq_length
-
-    for token in tokens:
-        if token == '<Dialogue>':
-            context = [dialogueIdx] * seq_length
-            continue
-        
-        idx = distTokenDict[token]
-        X.append(context)
-        Y.append(idx)
-        context = context[1:] + [idx]
-        
-    X = torch.tensor(X) 
-    Y = torch.tensor(Y) 
-    return X,Y
-
-#Training, Dev, and Testing splits
-trEndIdx = int(0.8*len(tokenArr))
-devEndIdx = int(0.9*len(tokenArr))
-Xtr, Ytr = build_dataset(tokenArr[:trEndIdx])
-Xdev, Ydev = build_dataset(tokenArr[trEndIdx:devEndIdx])
-Xtest, Ytest = build_dataset(tokenArr[devEndIdx:])
-
-#create lookup table, hidden nonlinearity layer, the last layer being linear, and biases for each layer. All parameters which we'll use Use generator for 
-g = torch.Generator().manual_seed(5000)
-embed_dim = 7
-#num_tokens = len(distTokenDict)
-num_neurons1 = 10
-num_neurons2 = 11
-num_neurons3 = 9
-lookupTbl = torch.randn((num_tokens, embed_dim),generator=g) #weight matrix where you index to each token that has an embedding of 25 dimensions. There are 13113 distinct tokens
-W1 = torch.randn((seq_length * embed_dim, num_neurons1), generator=g) * 0.1
-b1 = torch.randn(num_neurons1, generator=g) * 0.01
-W2 = torch.randn((num_neurons1, num_tokens), generator=g) * 0.06 #torch.randn((num_neurons1, num_neurons2), generator=g) #outputs number of neurons is num_tokens since we have num_tokens possible tokens that come next 
-b2 = torch.randn(num_tokens, generator=g) * 0.1 #torch.randn(num_neurons2, generator=g)
-
-bngain = torch.ones((1, num_neurons1))
-bnbias = torch.zeros((1, num_neurons1))
-bnmean_running = torch.zeros((1, num_neurons1)) #mean is 0 for unit gaussian
-bnstd_running = torch.zeros((1, num_neurons1))  #std is 1 for unit gaussian
-parameters = [lookupTbl, W1, b1, W2, b2, bngain, bnbias]#, W3, b3] #76199 total parameters  W4, b4
+#split dataset
+n = int(0.9 * len(token_ids))
+train_data = token_ids[:n]
+val_data = token_ids[n:]
 
 #hyperparameters
 batch_size = 64
@@ -80,6 +38,7 @@ class Head(nn.Module):
 
     def __init__(self,head_size):
         super().__init__()
+        self.head_size = head_size
         self.key = nn.Linear(n_embd, head_size, bias=False)
         self.query = nn.Linear(n_embd, head_size, bias=False)
         self.value = nn.Linear(n_embd, head_size, bias=False)
@@ -91,7 +50,7 @@ class Head(nn.Module):
         k = self.key(x)
         q = self.query(x)
 
-        weights = q @ k.transpose(-2,-1) * head_size**-0.5
+        weights = q @ k.transpose(-2,-1) * self.head_size**-0.5
         weights = weights.masked_fill(self.tril[:T, :T] == 0, float('-inf'))
         weights = F.softmax(weights, dim=-1)
         weights = self.dropout(weights)
@@ -115,7 +74,7 @@ class TransformerModel(nn.Module):
         B, T = token_ids.shape
 
         tok_emb = self.token_embedding_table(token_ids)
-        pos_emb = self.pos_embedding_table(torch.arange(token_ids,device=device))
+        pos_emb = self.pos_embedding_table(torch.arange(T,device=device))
 
         x = tok_emb + pos_emb
         x = self.blocks(x)
@@ -130,7 +89,20 @@ class TransformerModel(nn.Module):
             targets = targets.view(B*T)
             loss = F.cross_entropy(logits,targets)
 
-        return logits,loss 
+        return logits,loss
+    
+    def generate(self, idx):
+        while True:
+            logits, _ = self.forward(idx)
+            logits = logits[:, -1, :]
+            probs = F.softmax(logits, dim=-1)
+            next_token = torch.multinomial(probs, num_samples=1)
+            idx = torch.cat([idx, next_token], dim=1)
+
+            if next_token == '<Dialogue>':
+                break
+        return idx
+
 
 class MultiHeadAttention(nn.Module):
 
@@ -175,73 +147,82 @@ class Block(nn.Module):
         return x
 
 
+ShakespearenModel =  TransformerModel().to(device)  
 
-lri = []
-lossi = []
-dlossi = [] 
-steps = []
+optimizer = torch.optim.AdamW(
+    ShakespearenModel.parameters(),
+    lr=learning_rate
+)
 
-for p in parameters:
-    p.requires_grad = True
+def get_batch(data):
+    batch_ids = []
+    targets = []
 
-num_iterations = 100000
-for i in range(num_iterations):
-    #minibatch construct
-    ix = torch.randint(0, Xtr.shape[0], (200,)) #updated minibatch size 
 
-    #forward pass - batch training loss
-    emb = lookupTbl[Xtr[ix]]
-    hpreact = emb.view(-1, seq_length * embed_dim) @ W1 + b1
-    bnmeani = hpreact.mean(0, keepdim=True)
-    bnstdi = hpreact.std(0, keepdim=True) 
-    hpreact = bngain * (hpreact - bnmeani)/bnstdi + bnbias #batchnorm layer
+    #picks batch_size starting indicies, leaves room for shifted target
+    starts = torch.randint(0, len(data) - block_size, (batch_size,))
+
+    #generate batch_size sequences of block_size tokens
+    for i in range (batch_size):
+
+        #Get input sequence of block_size tokens
+        sequence = data[starts[i]:starts[i] + block_size]
+
+        #Target sequence shifted one token forward
+        target = data[starts[i] + 1: starts[i] + block_size + 1]
+
+        batch_ids.append(sequence)
+        targets.append(target)
+
+    #Combine individual sequences into one tensor
+    batch_ids = torch.stack(batch_ids).to(device)
+    targets = torch.stack(targets).to(device)
+
+    return batch_ids, targets
+
+def estimate_loss():
     
+    eval_losses = []
+
+    #Put model into evaluation mode
+    ShakespearenModel.eval()
+
+    #Don't calculate gradients during evaluation
     with torch.no_grad():
-        bnmean_running = 0.999 * bnmean_running + 0.001 *bnmeani
-        bnstd_running = 0
+        
+        for _ in range(eval_iters):
 
-    h = torch.tanh(hpreact) #(237803, 100)
-    logits = h @ W2 + b2 #W3 + b3 # @ W4 + b4
-    loss = F.cross_entropy(logits, Ytr[ix])
+            batch_ids, targets = get_batch(val_data)
 
-    #backward pass
-    for p in parameters:
-        p.grad = None
+            #Forward pass
+            _, loss = ShakespearenModel(batch_ids, targets)
+
+            eval_losses.append(loss.item())
+
+    eval_loss = torch.tensor(eval_losses).mean()
+
+    return eval_loss
+
+for iter in range(max_iters):    
+
+    if iter % eval_interval == 0:
+        eval_loss = estimate_loss()
+        print(f"Iteration {iter}: Validation loss = {eval_loss:.4f}")
+
+    batch_ids, targets = get_batch(train_data)
+
+    #Forward pass
+    logits, loss = ShakespearenModel(batch_ids, targets)
+
+    #Backpropagation
+    optimizer.zero_grad()
     loss.backward()
 
-    #update
-    #lr = lrs[i]
-    lr = 0.05
+    #Update weights
+    optimizer.step()
 
-    for p in parameters:
-        p.data += -lr * p.grad
- 
-    #lri.append([lre[i]])
-    lossi.append(loss.item())
-    #dlossi.append(lossDev.item())
-    steps.append(i)
 
-#batch training loss
-print("batch training loss " + str(loss.item()))
-
-@torch.no_grad()
-def split_loss(split):
-    x,y = { 
-        'train': (Xtr, Ytr),
-        'val': (Xdev, Ydev),
-        'test': (Xtest, Ytest),
-    }[split]
-    emb = lookupTbl[x]
-    hpreact = emb.view(-1, seq_length * embed_dim) @ W1 + b1
-    #hpreact = bngain * (hpreact - hpreact.mean(0, keepdim=True))/hpreact.std(0, keepdim=True) + bnbias
-    hpreact = bngain * (hpreact - bnmean_running)/bnstd_running + bnbias
-
-    h = torch.tanh((emb.view(-1, seq_length * embed_dim) @ W1 + b1)) #@ W2 + b2)) #torch.tanh(((emb.view(-1, seq_length * embed_dim) @ W1 + b1) @ W2 + b2) @ W3 + b3) #(237803, 100)
-    logits = h @ W2 + b2 #W3 + b3 #h @ W4 + b4
-    loss = F.cross_entropy(logits, y)
-    print(split, (loss.item()))
-
-split_loss('train')
-split_loss('val')
-
+#generate text after training (go from <dialogue> to <dialogue>)
+generated = ShakespearenModel.generate(torch.tensor(['<Dialogue>']))
+print(*[token.item() for token in generated if token != '<Dialogue>'])
 
