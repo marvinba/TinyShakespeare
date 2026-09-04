@@ -14,6 +14,7 @@ with open('input.txt', 'r', encoding='utf-8') as f:
     distTokenDict = {token:idx for idx, token in enumerate(dict.fromkeys(tokenArr))}
     token_ids = [distTokenDict[token] for token in tokenArr]
     token_ids = torch.tensor(token_ids, dtype=torch.long)
+    idxToToken = {idx: token for token, idx in distTokenDict.items()}
 
 #split dataset
 n = int(0.9 * len(token_ids))
@@ -33,6 +34,7 @@ n_head = 6
 n_layer = 6
 dropout = 0.2
 vocab_size = len(distTokenDict)
+dialogue_id = distTokenDict['<Dialogue>']
 
 class Head(nn.Module):
 
@@ -99,7 +101,10 @@ class TransformerModel(nn.Module):
             next_token = torch.multinomial(probs, num_samples=1)
             idx = torch.cat([idx, next_token], dim=1)
 
-            if next_token == '<Dialogue>':
+            if idx.size(1) == block_size:
+                break
+
+            if next_token.item() == dialogue_id:
                 break
         return idx
 
@@ -226,6 +231,16 @@ for iter in range(max_iters):
 
 
 #generate text after training (go from <dialogue> to <dialogue>)
-genText = ShakespearenModel.generate(torch.tensor([0]))
-print(*[token.item() for token in genText if token != '<Dialogue>'])
+
+#disable dropout during generation
+ShakespearenModel.eval()
+
+genIds = ShakespearenModel.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
+genTokens = [
+    idxToToken[token_id]
+    for token_id in genIds[0].tolist()
+    if idxToToken[token_id] != '<Dialogue>'
+]
+
+print(*genTokens)
 
