@@ -9,7 +9,7 @@ import torch.nn as nn
 #load tokens from dataset
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = '\n\n' + f.read();
-    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text[:100000])
+    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text[:500000])
     tokenArr = regExp.findall(r'[<]{1}[\w]+[>]{1}|[.?!,:;]|[\w]+', text) #create tokens including <Dialogue>
     distTokenDict = {token:idx for idx, token in enumerate(dict.fromkeys(tokenArr))}
     token_ids = [distTokenDict[token] for token in tokenArr]
@@ -226,6 +226,6 @@ for iter in range(max_iters):
 
 
 #generate text after training (go from <dialogue> to <dialogue>)
-generated = ShakespearenModel.generate(torch.tensor(['<Dialogue>']))
-print(*[token.item() for token in generated if token != '<Dialogue>'])
+genText = ShakespearenModel.generate(torch.tensor([0]))
+print(*[token.item() for token in genText if token != '<Dialogue>'])
 
