@@ -94,6 +94,10 @@ class TransformerModel(nn.Module):
         return logits,loss
     
     def generate(self, idx):
+        
+        #disable dropout during generation
+        self.eval()
+
         while True:
             logits, _ = self.forward(idx)
             logits = logits[:, -1, :]
@@ -231,10 +235,6 @@ for iter in range(max_iters):
 
 
 #generate text after training (go from <dialogue> to <dialogue>)
-
-#disable dropout during generation
-ShakespearenModel.eval()
-
 genIds = ShakespearenModel.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
 genTokens = [
     idxToToken[token_id]
