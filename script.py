@@ -10,7 +10,7 @@ import torch.nn as nn
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = '\n\n' + f.read();
     text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text)
-    tokenArr = regExp.findall(r'[<]{1}[\w]+[>]{1}|[.?!,:;]|[\w]+', text) #create tokens including <Dialogue>
+    tokenArr = regExp.findall(r"<\w+>|'?\w+(?:'\w+)*|[.?!,:;]", text) #create tokens including <Dialogue>
     distTokenDict = {token:idx for idx, token in enumerate(dict.fromkeys(tokenArr))}
     token_ids = [distTokenDict[token] for token in tokenArr]
     token_ids = torch.tensor(token_ids, dtype=torch.long)
@@ -251,5 +251,8 @@ genTokens = [
     if idxToToken[token_id] != '<Dialogue>'
 ]
 
-print(*genTokens)
+generated_text = ' '.join(genTokens)
+generated_text = regExp.sub(r'\s+([.?!,:;])', r'\1', generated_text)
+
+print(generated_text)
 
