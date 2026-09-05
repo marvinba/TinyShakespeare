@@ -9,7 +9,7 @@ import torch.nn as nn
 #load tokens from dataset
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = '\n\n' + f.read();
-    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text[:500000])
+    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text)
     tokenArr = regExp.findall(r'[<]{1}[\w]+[>]{1}|[.?!,:;]|[\w]+', text) #create tokens including <Dialogue>
     distTokenDict = {token:idx for idx, token in enumerate(dict.fromkeys(tokenArr))}
     token_ids = [distTokenDict[token] for token in tokenArr]
@@ -191,7 +191,7 @@ def get_batch(data):
 
 def estimate_loss():
     
-    eval_losses = []
+    losses = {}
 
     #Put model into evaluation mode
     ShakespearenModel.eval()
@@ -199,27 +199,36 @@ def estimate_loss():
     #Don't calculate gradients during evaluation
     with torch.no_grad():
         
-        for _ in range(eval_iters):
+        for split, data in [('train', train_data), ('val', val_data)]:
 
-            batch_ids, targets = get_batch(val_data)
+            split_losses = []
 
-            #Forward pass
-            _, loss = ShakespearenModel(batch_ids, targets)
+            for _ in range(eval_iters):
 
-            eval_losses.append(loss.item())
+                batch_ids, targets = get_batch(data)
 
-    eval_loss = torch.tensor(eval_losses).mean()
+                #Forward pass
+                _, loss = ShakespearenModel(batch_ids, targets)
+
+                split_losses.append(loss.item())
+
+            losses[split] = torch.tensor(split_losses).mean()
 
     # Put model back into training mode
     ShakespearenModel.train()
 
-    return eval_loss
+    return losses
 
 for iter in range(max_iters):    
 
     if iter % eval_interval == 0:
-        eval_loss = estimate_loss()
-        print(f"Iteration {iter}: Validation loss = {eval_loss:.4f}")
+        losses = estimate_loss()
+
+        print(
+            f"Iteration {iter}: "
+            f"Training loss = {losses['train']:.4f}, "
+            f"Validation loss = {losses['val']:.4f}"
+        )
 
     batch_ids, targets = get_batch(train_data)
 
