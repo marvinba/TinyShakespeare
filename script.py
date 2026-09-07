@@ -162,6 +162,10 @@ optimizer = torch.optim.AdamW(
     ShakespearenModel.parameters(),
     lr=learning_rate
 )
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer,
+    T_max=max_iters
+)
 
 def get_batch(data):
     batch_ids = []
@@ -239,9 +243,9 @@ for iter in range(max_iters+1):
     optimizer.zero_grad()
     loss.backward()
 
-    #Update weights
+    #Update weights and decay learning rate
     optimizer.step()
-
+    scheduler.step()
 
 #generate text after training (go from <dialogue> to <dialogue>)
 genIds = ShakespearenModel.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
