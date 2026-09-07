@@ -219,7 +219,7 @@ def estimate_loss():
 
     return losses
 
-for iter in range(max_iters):    
+for iter in range(max_iters+1):    
 
     if iter % eval_interval == 0:
         losses = estimate_loss()
