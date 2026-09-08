@@ -7,20 +7,11 @@ import matplotlib.pyplot as plt
 import torch.nn as nn
 
 #load tokens from dataset
+dialogueStr = '<Dialogue>'
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = '\n\n' + f.read();
-    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', '<Dialogue>', text)
-    tokenArr = regExp.findall(r"<\w+>|'?\w+(?:'\w+)*|[.?!,:;]", text) #create tokens including <Dialogue>
-    distTokenDict = {token:idx for idx, token in enumerate(dict.fromkeys(tokenArr))}
-    token_ids = [distTokenDict[token] for token in tokenArr]
-    token_ids = torch.tensor(token_ids, dtype=torch.long)
-    idxToToken = {idx: token for token, idx in distTokenDict.items()}
-
-#split dataset
-n = int(0.9 * len(token_ids))
-train_data = token_ids[:n]
-val_data = token_ids[n:]
-
+    text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', dialogueStr, text)
+    
 #hyperparameters
 batch_size = 64
 block_size = 256
@@ -33,8 +24,60 @@ n_embd = 192
 n_head = 6
 n_layer = 4
 dropout = 0.2
-vocab_size = len(distTokenDict)
-dialogue_id = distTokenDict['<Dialogue>']
+
+#tokenizer hyperparameters
+vocab_size = 1000
+num_merges = vocab_size - 257
+
+tokens = list(text.encode("utf-8")) #list of raw bytes
+dialogueBytes = list(dialogueStr.encode("utf-8"))
+dialogue_id = 256
+
+def replace_dialogue():
+    i = 0
+    dialogueSz = len(dialogueBytes)
+    while i <= len(tokens) - dialogueSz:
+        if (tokens[i:i+dialogueSz] == dialogueBytes): 
+            tokens[i:i+dialogueSz] = [dialogue_id]
+        i+=1
+
+replace_dialogue()
+
+merges = {}
+
+def find_pair(data):
+    counts = {}
+    for pair in zip(data, data[1:]):
+        if dialogue_id in pair:
+            continue
+
+        counts[pair] = counts.get(pair, 0) + 1
+    most_frequent_pair = max(counts, key=counts.get)
+
+    return most_frequent_pair
+
+
+def bpe_merge():
+
+    for i in range(1, num_merges+1):
+        pair = find_pair(tokens)
+        new_token = 256 + i
+        merges[new_token] = pair
+
+        j = 0
+        while(j < len(tokens)- 1):
+
+            if((tokens[j] == pair[0]) and (tokens[j+1] == pair[1])):
+                tokens[j:j+2] = [new_token]
+            j+=1
+    
+bpe_merge()
+
+
+#split dataset
+n = int(0.9 * len(token_ids))
+train_data = token_ids[:n]
+val_data = token_ids[n:]
 
 class Head(nn.Module):
 
