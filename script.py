@@ -26,7 +26,7 @@ n_layer = 6
 dropout = 0.2
 
 #tokenizer hyperparameters
-vocab_size = 1000
+vocab_size = 2000
 num_merges = vocab_size - 257
 
 token_ids = list(text.encode("utf-8")) #list of raw bytes
