@@ -43,8 +43,6 @@ def replace_dialogue():
             token_ids[i:i+dialogueSz] = [dialogue_id]
         i+=1
 
-replace_dialogue()
-
 def find_pair(data):
     counts = {}
     for pair in zip(data, data[1:]):
@@ -70,26 +68,22 @@ def bpe_merge():
                 token_ids[j:j+2] = [new_token]
             j+=1
     
-bpe_merge()
-
-def convertToToken(id):
-    if id > 256:
-        return merges[id]
-    else:
-        return idToToken[id]
-    
 def idsToTokens():
 
     for i in range(256):
-        idToToken[i] = chr(i) #0-255 is its char
+        idToToken[i] = bytes([i]) #id 0-255 is its bytes 
 
     idToToken[dialogue_id] = '<Dialogue>'
 
     for i in range (257, vocab_size): #257 or greater in merges
         pair = merges[i] # gives you a pair
-        idToToken[i] = convertToToken(pair[0]) + convertToToken(pair[1])
+        idToToken[i] = idToToken[pair[0]] + idToToken[pair[1]]
 
+replace_dialogue()
+bpe_merge()
 idsToTokens()
+
+token_ids = torch.tensor(token_ids, dtype=torch.long)
 
 #split dataset
 n = int(0.9 * len(token_ids))
@@ -294,6 +288,9 @@ for iter in range(max_iters+1):
             f"Validation loss = {losses['val']:.4f}"
         )
 
+    if iter == max_iters:
+        break
+
     batch_ids, targets = get_batch(train_data)
 
     #Forward pass
@@ -312,11 +309,11 @@ genIds = ShakespearenModel.generate(torch.tensor([[dialogue_id]],dtype=torch.lon
 genTokens = [
     idToToken[token_id]
     for token_id in genIds[0].tolist()
-    if idToToken[token_id] != '<Dialogue>'
+    if token_id != dialogue_id
 ]
 
-generated_text = ' '.join(genTokens)
-generated_text = regExp.sub(r'\s+([.?!,:;])', r'\1', generated_text)
+generated_bytes = b''.join(genTokens)
+generated_text = generated_bytes.decode('utf-8', errors='replace')
 
 print(generated_text)
 
