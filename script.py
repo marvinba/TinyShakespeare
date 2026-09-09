@@ -29,21 +29,21 @@ dropout = 0.2
 vocab_size = 1000
 num_merges = vocab_size - 257
 
-tokens = list(text.encode("utf-8")) #list of raw bytes
+token_ids = list(text.encode("utf-8")) #list of raw bytes
 dialogueBytes = list(dialogueStr.encode("utf-8"))
 dialogue_id = 256
+merges = {}
+idToToken = {}
 
 def replace_dialogue():
     i = 0
     dialogueSz = len(dialogueBytes)
-    while i <= len(tokens) - dialogueSz:
-        if (tokens[i:i+dialogueSz] == dialogueBytes): 
-            tokens[i:i+dialogueSz] = [dialogue_id]
+    while i <= len(token_ids) - dialogueSz:
+        if (token_ids[i:i+dialogueSz] == dialogueBytes): 
+            token_ids[i:i+dialogueSz] = [dialogue_id]
         i+=1
 
 replace_dialogue()
-
-merges = {}
 
 def find_pair(data):
     counts = {}
@@ -56,23 +56,40 @@ def find_pair(data):
 
     return most_frequent_pair
 
-
 def bpe_merge():
 
     for i in range(1, num_merges+1):
-        pair = find_pair(tokens)
+        pair = find_pair(token_ids)
         new_token = 256 + i
         merges[new_token] = pair
 
         j = 0
-        while(j < len(tokens)- 1):
+        while(j < len(token_ids)- 1):
 
-            if((tokens[j] == pair[0]) and (tokens[j+1] == pair[1])):
-                tokens[j:j+2] = [new_token]
+            if((token_ids[j] == pair[0]) and (token_ids[j+1] == pair[1])):
+                token_ids[j:j+2] = [new_token]
             j+=1
     
 bpe_merge()
 
+def convertToToken(id):
+    if id > 256:
+        return merges[id]
+    else:
+        return idToToken[id]
+    
+def idsToTokens():
+
+    for i in range(256):
+        idToToken[i] = chr(i) #0-255 is its char
+
+    idToToken[dialogue_id] = '<Dialogue>'
+
+    for i in range (257, vocab_size): #257 or greater in merges
+        pair = merges[i] # gives you a pair
+        idToToken[i] = convertToToken(pair[0]) + convertToToken(pair[1])
+
+idsToTokens()
 
 #split dataset
 n = int(0.9 * len(token_ids))
@@ -293,9 +310,9 @@ for iter in range(max_iters+1):
 #generate text after training (go from <dialogue> to <dialogue>)
 genIds = ShakespearenModel.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
 genTokens = [
-    idxToToken[token_id]
+    idToToken[token_id]
     for token_id in genIds[0].tolist()
-    if idxToToken[token_id] != '<Dialogue>'
+    if idToToken[token_id] != '<Dialogue>'
 ]
 
 generated_text = ' '.join(genTokens)
