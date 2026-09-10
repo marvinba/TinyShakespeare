@@ -25,70 +25,78 @@ n_head = 8
 n_layer = 6
 dropout = 0.2
 
-#tokenizer hyperparameters
-vocab_size = 2000
-num_merges = vocab_size - 257
-
-token_ids = list(text.encode("utf-8")) #list of raw bytes
-dialogueBytes = list(dialogueStr.encode("utf-8"))
-dialogue_id = 256
-merges = {}
-idToToken = {}
-
-def replace_dialogue():
-    i = 0
-    dialogueSz = len(dialogueBytes)
-    while i <= len(token_ids) - dialogueSz:
-        if (token_ids[i:i+dialogueSz] == dialogueBytes): 
-            token_ids[i:i+dialogueSz] = [dialogue_id]
-        i+=1
-
-def find_pair(data):
-    counts = {}
-    for pair in zip(data, data[1:]):
-        if dialogue_id in pair:
-            continue
-
-        counts[pair] = counts.get(pair, 0) + 1
-    most_frequent_pair = max(counts, key=counts.get)
-
-    return most_frequent_pair
-
-def bpe_merge():
-
-    for i in range(1, num_merges+1):
-        pair = find_pair(token_ids)
-        new_token = 256 + i
-        merges[new_token] = pair
-
-        j = 0
-        while(j < len(token_ids)- 1):
-
-            if((token_ids[j] == pair[0]) and (token_ids[j+1] == pair[1])):
-                token_ids[j:j+2] = [new_token]
-            j+=1
-    
-def idsToTokens():
-
-    for i in range(256):
-        idToToken[i] = bytes([i]) #id 0-255 is its bytes 
-
-    idToToken[dialogue_id] = '<Dialogue>'
-
-    for i in range (257, vocab_size): #257 or greater in merges
-        pair = merges[i] # gives you a pair
-        idToToken[i] = idToToken[pair[0]] + idToToken[pair[1]]
-
-replace_dialogue()
-bpe_merge()
-idsToTokens()
-
-token_ids = torch.tensor(token_ids, dtype=torch.long)
-
 #split dataset
-n = int(0.9 * len(token_ids))
-train_data = token_ids[:n]
-val_data = token_ids[n:]
+split_idx = int(0.9 * len(text))
+split_idx = text.find("<Dialogue>", split_idx)
+n = int(0.9 * len(text))
+train_text = text[:split_idx]
+val_text = text[split_idx:]
+
+class BPETokenizer():
+
+    def __init__(self, data):
+        self.token_ids = list(data.encode("utf-8")) #list of raw bytes
+        self.dialogue_id = 256
+        self.merges = {}
+        self.idToToken = {}
+        self.vocab_size = 2000
+        self.num_merges = self.vocab_size - 257
+        self.replace_dialogueBytes() 
+        self.bpe_merge()
+        self.idsToTokens()
+
+    def replace_dialogueBytes(self):
+        dialogueBytes = list(dialogueStr.encode("utf-8"))
+
+        i = 0
+        dialogueSz = len(dialogueBytes)
+        while i <= len(self.token_ids) - dialogueSz:
+            if (self.token_ids[i:i+dialogueSz] == dialogueBytes): 
+                self.token_ids[i:i+dialogueSz] = [self.dialogue_id]
+            i+=1
+
+    def find_pair(self):
+        counts = {}
+        for pair in zip(self.token_ids, self.token_ids[1:]):
+            if self.dialogue_id in pair:
+                continue
+
+            counts[pair] = counts.get(pair, 0) + 1
+        most_frequent_pair = max(counts, key=counts.get)
+
+        return most_frequent_pair
+
+    def bpe_merge(self):
+
+        for i in range(1, self.num_merges+1):
+            pair = self.find_pair()
+            new_token = 256 + i
+            self.merges[new_token] = pair
+
+            j = 0
+            while(j < len(self.token_ids)- 1):
+
+                if((self.token_ids[j] == pair[0]) and (self.token_ids[j+1] == pair[1])):
+                    self.token_ids[j:j+2] = [new_token]
+                j+=1
+        
+    def idsToTokens(self):
+
+        for i in range(256):
+            self.idToToken[i] = bytes([i]) #id 0-255 is its bytes 
+
+        self.idToToken[self.dialogue_id] = '<Dialogue>'
+
+        for i in range (257, self.vocab_size): #257 or greater in merges
+            pair = self.merges[i] # gives you a pair
+            self.idToToken[i] = self.idToToken[pair[0]] + self.idToToken[pair[1]]
+
+    def getTokenIds(self):
+        return torch.tensor(self.token_ids, dtype=torch.long)
+
+
+tokenizer = BPETokenizer(train_text)
+
 
 class Head(nn.Module):
 
