@@ -14,7 +14,7 @@ with open('input.txt', 'r', encoding='utf-8') as f:
     
 #hyperparameters
 batch_size = 64
-block_size = 512
+block_size = 256
 max_iters = 5000
 eval_interval = 500
 learning_rate = 3e-4
@@ -23,7 +23,7 @@ eval_iters = 200
 n_embd = 256
 n_head = 8
 n_layer = 6
-dropout = 0.2
+dropout = 0.3
 vocab_size = 1000
 dialogue_id = 256
 
