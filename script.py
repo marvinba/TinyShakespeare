@@ -24,44 +24,48 @@ n_embd = 256
 n_head = 8
 n_layer = 6
 dropout = 0.2
+vocab_size = 2000
+dialogue_id = 256
 
 #split dataset
 split_idx = int(0.9 * len(text))
 split_idx = text.find("<Dialogue>", split_idx)
-n = int(0.9 * len(text))
 train_text = text[:split_idx]
 val_text = text[split_idx:]
 
 class BPETokenizer():
 
     def __init__(self, data):
-        self.token_ids = list(data.encode("utf-8")) #list of raw bytes
-        self.dialogue_id = 256
+        self.token_ids = list(data.encode("utf-8")) #list of ids of each byte        
         self.merges = {}
         self.idToToken = {}
-        self.vocab_size = 2000
-        self.num_merges = self.vocab_size - 257
-        self.replace_dialogueBytes() 
+        self.num_merges = vocab_size - 257
+        self.replace_dialogueID(self.token_ids)
         self.bpe_merge()
         self.idsToTokens()
-
-    def replace_dialogueBytes(self):
-        dialogueBytes = list(dialogueStr.encode("utf-8"))
+        self.tokenToId = {
+            token: token_id
+            for token_id, token in self.idToToken.items()
+        }        
+      
+    def replace_dialogueID(self, byteIDs):
+        dialogueIDs = list(dialogueStr.encode("utf-8"))
 
         i = 0
-        dialogueSz = len(dialogueBytes)
-        while i <= len(self.token_ids) - dialogueSz:
-            if (self.token_ids[i:i+dialogueSz] == dialogueBytes): 
-                self.token_ids[i:i+dialogueSz] = [self.dialogue_id]
+        dialogueSz = len(dialogueIDs)
+        while i <= len(byteIDs) - dialogueSz:
+            if (byteIDs[i:i+dialogueSz] == dialogueIDs): 
+                byteIDs[i:i+dialogueSz] = [dialogue_id]
             i+=1
 
     def find_pair(self):
         counts = {}
         for pair in zip(self.token_ids, self.token_ids[1:]):
-            if self.dialogue_id in pair:
+            if dialogue_id in pair:
                 continue
 
             counts[pair] = counts.get(pair, 0) + 1
+
         most_frequent_pair = max(counts, key=counts.get)
 
         return most_frequent_pair
@@ -70,33 +74,49 @@ class BPETokenizer():
 
         for i in range(1, self.num_merges+1):
             pair = self.find_pair()
-            new_token = 256 + i
-            self.merges[new_token] = pair
+            tokenid = 256 + i
+            self.merges[tokenid] = pair
 
             j = 0
             while(j < len(self.token_ids)- 1):
 
                 if((self.token_ids[j] == pair[0]) and (self.token_ids[j+1] == pair[1])):
-                    self.token_ids[j:j+2] = [new_token]
-                j+=1
+                    self.token_ids[j:j+2] = [tokenid]
+                else:
+                    j+=1
         
     def idsToTokens(self):
 
         for i in range(256):
             self.idToToken[i] = bytes([i]) #id 0-255 is its bytes 
 
-        self.idToToken[self.dialogue_id] = '<Dialogue>'
+        self.idToToken[dialogue_id] = b'<Dialogue>'
 
-        for i in range (257, self.vocab_size): #257 or greater in merges
+        for i in range (257, vocab_size): #257 or greater in merges
             pair = self.merges[i] # gives you a pair
             self.idToToken[i] = self.idToToken[pair[0]] + self.idToToken[pair[1]]
 
-    def getTokenIds(self):
-        return torch.tensor(self.token_ids, dtype=torch.long)
+    def encode(self, text):
+        token_ids = list(text.encode("utf-8"))
+        self.replace_dialogueID(token_ids)
 
+        for token_id, pair in self.merges.items():
+
+            idx = 0
+            while idx < len(token_ids) - 1:
+                if pair == (token_ids[idx], token_ids[idx+1]):
+                    token_ids[idx:idx+2] = [token_id]
+                else:
+                    idx+=1
+
+        return torch.tensor(token_ids, dtype=torch.long)
+    
+    def getToken(self, token_id):
+        return self.idToToken[token_id]
 
 tokenizer = BPETokenizer(train_text)
-
+train_data = tokenizer.encode(train_text)
+val_data = tokenizer.encode(val_text)
 
 class Head(nn.Module):
 
@@ -229,31 +249,30 @@ scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
     T_max=max_iters
 )
 
-def get_batch(data):
+def get_batch(encoded_data):
     batch_ids = []
-    targets = []
-
+    target_ids = []
 
     #picks batch_size starting indicies, leaves room for shifted target
-    starts = torch.randint(0, len(data) - block_size, (batch_size,))
+    starts = torch.randint(0, len(encoded_data) - block_size, (batch_size,))
 
     #generate batch_size sequences of block_size tokens
     for i in range (batch_size):
 
         #Get input sequence of block_size tokens
-        sequence = data[starts[i]:starts[i] + block_size]
+        seq = encoded_data[starts[i]:starts[i] + block_size]
 
         #Target sequence shifted one token forward
-        target = data[starts[i] + 1: starts[i] + block_size + 1]
+        target = encoded_data[starts[i] + 1: starts[i] + block_size + 1]
 
-        batch_ids.append(sequence)
-        targets.append(target)
+        batch_ids.append(seq)
+        target_ids.append(target)
 
     #Combine individual sequences into one tensor
     batch_ids = torch.stack(batch_ids).to(device)
-    targets = torch.stack(targets).to(device)
+    target_ids = torch.stack(target_ids).to(device)
 
-    return batch_ids, targets
+    return batch_ids, target_ids
 
 def estimate_loss():
     
@@ -271,10 +290,10 @@ def estimate_loss():
 
             for _ in range(eval_iters):
 
-                batch_ids, targets = get_batch(data)
+                batch_ids, target_ids = get_batch(data)
 
                 #Forward pass
-                _, loss = ShakespearenModel(batch_ids, targets)
+                _, loss = ShakespearenModel(batch_ids, target_ids)
 
                 split_losses.append(loss.item())
 
@@ -299,10 +318,10 @@ for iter in range(max_iters+1):
     if iter == max_iters:
         break
 
-    batch_ids, targets = get_batch(train_data)
+    batch_ids, target_ids = get_batch(train_data)
 
     #Forward pass
-    logits, loss = ShakespearenModel(batch_ids, targets)
+    logits, loss = ShakespearenModel(batch_ids, target_ids)
 
     #Backpropagation
     optimizer.zero_grad()
@@ -315,7 +334,7 @@ for iter in range(max_iters+1):
 #generate text after training (go from <dialogue> to <dialogue>)
 genIds = ShakespearenModel.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
 genTokens = [
-    idToToken[token_id]
+    tokenizer.getToken(token_id)
     for token_id in genIds[0].tolist()
     if token_id != dialogue_id
 ]
@@ -324,4 +343,3 @@ generated_bytes = b''.join(genTokens)
 generated_text = generated_bytes.decode('utf-8', errors='replace')
 
 print(generated_text)
-
