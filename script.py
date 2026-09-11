@@ -17,13 +17,13 @@ batch_size = 64
 block_size = 256
 max_iters = 5000
 eval_interval = 500
-learning_rate = 3e-4
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embd = 256
 n_head = 8
 n_layer = 6
-dropout = 0.3
+dropouts = [0.25, 0.30, 0.35, 0.40]
+learning_rates = [1e-4, 2e-4, 3e-4]
 vocab_size = 1000
 dialogue_id = 256
 
@@ -120,7 +120,7 @@ val_data = tokenizer.encode(val_text)
 
 class Head(nn.Module):
 
-    def __init__(self,head_size):
+    def __init__(self,head_size,dropout):
         super().__init__()
         self.head_size = head_size
         self.key = nn.Linear(n_embd, head_size, bias=False)
@@ -145,12 +145,12 @@ class Head(nn.Module):
 
 class TransformerModel(nn.Module):
 
-    def __init__(self):
+    def __init__(self, dropout):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.pos_embedding_table = nn.Embedding(block_size, n_embd)
 
-        self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head) for _ in range(n_layer)])
+        self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head, dropout=dropout) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd) #final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
@@ -194,12 +194,11 @@ class TransformerModel(nn.Module):
                 break
         return idx
 
-
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, num_heads, head_size):
+    def __init__(self, num_heads, head_size, dropout):
         super().__init__()
-        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+        self.heads = nn.ModuleList([Head(head_size, dropout) for _ in range(num_heads)])
         self.proj = nn.Linear(n_embd, n_embd)
         self.dropout = nn.Dropout(dropout)
 
@@ -210,7 +209,7 @@ class MultiHeadAttention(nn.Module):
     
 class FeedForward(nn.Module):
 
-    def __init__(self, n_embd):
+    def __init__(self, n_embd, dropout):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(n_embd, n_embd * 4),
@@ -224,11 +223,11 @@ class FeedForward(nn.Module):
     
 class Block(nn.Module):
 
-    def __init__(self, n_embd, n_head):
+    def __init__(self, n_embd, n_head, dropout):
         super().__init__()
         head_size = n_embd//n_head
-        self.sa = MultiHeadAttention(n_head, head_size)
-        self.ffwd = FeedForward(n_embd)
+        self.sa = MultiHeadAttention(n_head, head_size, dropout)
+        self.ffwd = FeedForward(n_embd, dropout)
         self.ln1 = nn.LayerNorm(n_embd)
         self.ln2 = nn.LayerNorm(n_embd)
 
@@ -236,18 +235,6 @@ class Block(nn.Module):
         x = x + self.sa(self.ln1(x))
         x = x + self.ffwd(self.ln2(x))
         return x
-
-
-ShakespearenModel =  TransformerModel().to(device)  
-
-optimizer = torch.optim.AdamW(
-    ShakespearenModel.parameters(),
-    lr=learning_rate
-)
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optimizer,
-    T_max=max_iters
-)
 
 def get_batch(encoded_data):
     batch_ids = []
@@ -274,12 +261,12 @@ def get_batch(encoded_data):
 
     return batch_ids, target_ids
 
-def estimate_loss():
+def estimate_loss(model):
     
     losses = {}
 
     #Put model into evaluation mode
-    ShakespearenModel.eval()
+    model.eval()
 
     #Don't calculate gradients during evaluation
     with torch.no_grad():
@@ -293,53 +280,72 @@ def estimate_loss():
                 batch_ids, target_ids = get_batch(data)
 
                 #Forward pass
-                _, loss = ShakespearenModel(batch_ids, target_ids)
+                _, loss = model(batch_ids, target_ids)
 
                 split_losses.append(loss.item())
 
             losses[split] = torch.tensor(split_losses).mean()
 
     # Put model back into training mode
-    ShakespearenModel.train()
+    model.train()
 
     return losses
 
-for iter in range(max_iters+1):    
+  
 
-    if iter % eval_interval == 0:
-        losses = estimate_loss()
+for dropout in dropouts:
+    for learning_rate in learning_rates:
 
-        print(
-            f"Iteration {iter}: "
-            f"Training loss = {losses['train']:.4f}, "
-            f"Validation loss = {losses['val']:.4f}"
+        model = TransformerModel(dropout).to(device)
+
+        optimizer = torch.optim.AdamW(
+            model.parameters(),
+            lr=learning_rate
         )
 
-    if iter == max_iters:
-        break
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=max_iters
+        )
 
-    batch_ids, target_ids = get_batch(train_data)
+        for iter in range(max_iters+1):  
 
-    #Forward pass
-    logits, loss = ShakespearenModel(batch_ids, target_ids)
+            if iter % eval_interval == 0:
+                losses = estimate_loss(model)
 
-    #Backpropagation
-    optimizer.zero_grad()
-    loss.backward()
+                print(
+                    f"\n--- Dropout={dropout:.2f}, "
+                    f"Learning Rate={learning_rate:.4f} ---"
+                    f"Iteration {iter}: "
+                    f"Training loss = {losses['train']:.4f}, "
+                    f"Validation loss = {losses['val']:.4f}"
+                )
 
-    #Update weights and decay learning rate
-    optimizer.step()
-    scheduler.step()
+            if iter == max_iters:
+                break
 
-#generate text after training (go from <dialogue> to <dialogue>)
-genIds = ShakespearenModel.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
-genTokens = [
-    tokenizer.getToken(token_id)
-    for token_id in genIds[0].tolist()
-    if token_id != dialogue_id
-]
+            batch_ids, target_ids = get_batch(train_data)
 
-generated_bytes = b''.join(genTokens)
-generated_text = generated_bytes.decode('utf-8', errors='replace')
+            #Forward pass
+            logits, loss = model(batch_ids, target_ids)
 
-print(generated_text)
+            #Backpropagation
+            optimizer.zero_grad()
+            loss.backward()
+
+            #Update weights and decay learning rate
+            optimizer.step()
+            scheduler.step()
+
+        #generate text after training (go from <dialogue> to <dialogue>) 
+        genIds = model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
+        genTokens = [
+            tokenizer.getToken(token_id)
+            for token_id in genIds[0].tolist()
+            if token_id != dialogue_id
+        ]
+
+        generated_bytes = b''.join(genTokens)
+        generated_text = generated_bytes.decode('utf-8', errors='replace')
+
+        print(generated_text)
