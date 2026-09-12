@@ -19,11 +19,17 @@ max_iters = 5000
 eval_interval = 500
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
-n_embd = 256
-n_head = 8
+#n_embd = 256
+#n_head = 8
+model_sizes = [
+    (192, 6),
+    (256, 8),
+    (320, 8),
+    (384, 8),
+]
 n_layer = 6
-dropouts = [0.25, 0.30, 0.35, 0.40]
-learning_rates = [1e-4, 2e-4, 3e-4]
+dropout = 0.25
+learning_rate = 3e-4
 vocab_size = 1000
 dialogue_id = 256
 
@@ -120,7 +126,7 @@ val_data = tokenizer.encode(val_text)
 
 class Head(nn.Module):
 
-    def __init__(self,head_size,dropout):
+    def __init__(self, dropout, n_embd, head_size):
         super().__init__()
         self.head_size = head_size
         self.key = nn.Linear(n_embd, head_size, bias=False)
@@ -145,12 +151,12 @@ class Head(nn.Module):
 
 class TransformerModel(nn.Module):
 
-    def __init__(self, dropout):
+    def __init__(self, dropout, n_embd, n_head):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.pos_embedding_table = nn.Embedding(block_size, n_embd)
 
-        self.blocks = nn.Sequential(*[Block(n_embd, n_head=n_head, dropout=dropout) for _ in range(n_layer)])
+        self.blocks = nn.Sequential(*[Block(dropout, n_embd, n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd) #final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
@@ -196,9 +202,9 @@ class TransformerModel(nn.Module):
 
 class MultiHeadAttention(nn.Module):
 
-    def __init__(self, num_heads, head_size, dropout):
+    def __init__(self, dropout, n_embd, n_head, head_size):
         super().__init__()
-        self.heads = nn.ModuleList([Head(head_size, dropout) for _ in range(num_heads)])
+        self.heads = nn.ModuleList([Head(dropout, n_embd, head_size) for _ in range(n_head)])
         self.proj = nn.Linear(n_embd, n_embd)
         self.dropout = nn.Dropout(dropout)
 
@@ -223,10 +229,10 @@ class FeedForward(nn.Module):
     
 class Block(nn.Module):
 
-    def __init__(self, n_embd, n_head, dropout):
+    def __init__(self, dropout, n_embd, n_head):
         super().__init__()
         head_size = n_embd//n_head
-        self.sa = MultiHeadAttention(n_head, head_size, dropout)
+        self.sa = MultiHeadAttention(dropout, n_embd, n_head, head_size)
         self.ffwd = FeedForward(n_embd, dropout)
         self.ln1 = nn.LayerNorm(n_embd)
         self.ln2 = nn.LayerNorm(n_embd)
@@ -291,61 +297,58 @@ def estimate_loss(model):
 
     return losses
 
-  
+for n_embd, n_head in model_sizes: 
 
-for dropout in dropouts:
-    for learning_rate in learning_rates:
+    model = TransformerModel(dropout, n_embd, n_head).to(device)
 
-        model = TransformerModel(dropout).to(device)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=learning_rate
+    )
 
-        optimizer = torch.optim.AdamW(
-            model.parameters(),
-            lr=learning_rate
-        )
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=max_iters
+    )
 
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=max_iters
-        )
+    for iter in range(max_iters+1):  
 
-        for iter in range(max_iters+1):  
+        if iter % eval_interval == 0:
+            losses = estimate_loss(model)
 
-            if iter % eval_interval == 0:
-                losses = estimate_loss(model)
+            print(
+                f"Embedding Size={n_embd}, "
+                f"Number of heads={n_head}, "
+                f"Iteration {iter}: "
+                f"Training loss = {losses['train']:.4f}, "
+                f"Validation loss = {losses['val']:.4f}"
+            )
 
-                print(
-                    f"\n--- Dropout={dropout:.2f}, "
-                    f"Learning Rate={learning_rate:.4f} ---"
-                    f"Iteration {iter}: "
-                    f"Training loss = {losses['train']:.4f}, "
-                    f"Validation loss = {losses['val']:.4f}"
-                )
+        if iter == max_iters:
+            break
 
-            if iter == max_iters:
-                break
+        batch_ids, target_ids = get_batch(train_data)
 
-            batch_ids, target_ids = get_batch(train_data)
+        #Forward pass
+        logits, loss = model(batch_ids, target_ids)
 
-            #Forward pass
-            logits, loss = model(batch_ids, target_ids)
+        #Backpropagation
+        optimizer.zero_grad()
+        loss.backward()
 
-            #Backpropagation
-            optimizer.zero_grad()
-            loss.backward()
+        #Update weights and decay learning rate
+        optimizer.step()
+        scheduler.step()
 
-            #Update weights and decay learning rate
-            optimizer.step()
-            scheduler.step()
+    #generate text after training (go from <dialogue> to <dialogue>) 
+    genIds = model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
+    genTokens = [
+        tokenizer.getToken(token_id)
+        for token_id in genIds[0].tolist()
+        if token_id != dialogue_id
+    ]
 
-        #generate text after training (go from <dialogue> to <dialogue>) 
-        genIds = model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
-        genTokens = [
-            tokenizer.getToken(token_id)
-            for token_id in genIds[0].tolist()
-            if token_id != dialogue_id
-        ]
+    generated_bytes = b''.join(genTokens)
+    generated_text = generated_bytes.decode('utf-8', errors='replace')
 
-        generated_bytes = b''.join(genTokens)
-        generated_text = generated_bytes.decode('utf-8', errors='replace')
-
-        print(generated_text)
+    print(generated_text)
