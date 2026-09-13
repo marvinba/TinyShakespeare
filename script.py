@@ -19,15 +19,9 @@ max_iters = 5000
 eval_interval = 500
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
-#n_embd = 256
-#n_head = 8
-model_sizes = [
-    (192, 6),
-    (256, 8),
-    (320, 8),
-    (384, 8),
-]
-n_layer = 6
+n_embd = 320
+n_head = 8
+n_layers = [4, 6, 8]
 dropout = 0.25
 learning_rate = 3e-4
 vocab_size = 1000
@@ -151,7 +145,7 @@ class Head(nn.Module):
 
 class TransformerModel(nn.Module):
 
-    def __init__(self, dropout, n_embd, n_head):
+    def __init__(self, dropout, n_embd, n_head, n_layer):
         super().__init__()
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.pos_embedding_table = nn.Embedding(block_size, n_embd)
@@ -180,25 +174,30 @@ class TransformerModel(nn.Module):
             loss = F.cross_entropy(logits,targets)
 
         return logits,loss
-    
-    def generate(self, idx):
+
+    @torch.no_grad()
+    def generate(self, id):
         
         #disable dropout during generation
         self.eval()
 
         while True:
-            logits, _ = self.forward(idx)
+            logits, _ = self.forward(id)
             logits = logits[:, -1, :]
             probs = F.softmax(logits, dim=-1)
-            next_token = torch.multinomial(probs, num_samples=1)
-            idx = torch.cat([idx, next_token], dim=1)
+            next_id = torch.multinomial(probs, num_samples=1)
 
-            if idx.size(1) == block_size:
+            if next_id.item() == dialogue_id and id.size(1) == 1:
+                continue
+
+            id = torch.cat([id, next_id], dim=1)
+
+            if id.size(1) == block_size:
                 break
 
-            if next_token.item() == dialogue_id:
+            if next_id.item() == dialogue_id:
                 break
-        return idx
+        return id
 
 class MultiHeadAttention(nn.Module):
 
@@ -297,9 +296,10 @@ def estimate_loss(model):
 
     return losses
 
-for n_embd, n_head in model_sizes: 
+min_validation_loss = float('inf')
+for n_layer in n_layers: 
 
-    model = TransformerModel(dropout, n_embd, n_head).to(device)
+    model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
@@ -311,22 +311,33 @@ for n_embd, n_head in model_sizes:
         T_max=max_iters
     )
 
+    
     for iter in range(max_iters+1):  
 
         if iter % eval_interval == 0:
             losses = estimate_loss(model)
 
             print(
-                f"Embedding Size={n_embd}, "
-                f"Number of heads={n_head}, "
-                f"Iteration {iter}: "
+                f"Number of layers={n_layer}, "
+                f"Iteration {iter}, "
                 f"Training loss = {losses['train']:.4f}, "
                 f"Validation loss = {losses['val']:.4f}"
             )
 
+            if losses['val'] < min_validation_loss:
+                min_validation_loss = losses['val']
+                training_loss = losses['train']
+
+                best_config = {
+                    'iteration': iter,
+                    'n_layer': n_layer,
+                    'n_embd': n_embd,
+                    'n_head': n_head
+                }
+
         if iter == max_iters:
             break
-
+                    
         batch_ids, target_ids = get_batch(train_data)
 
         #Forward pass
@@ -339,8 +350,7 @@ for n_embd, n_head in model_sizes:
         #Update weights and decay learning rate
         optimizer.step()
         scheduler.step()
-
-    #generate text after training (go from <dialogue> to <dialogue>) 
+            
     genIds = model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
     genTokens = [
         tokenizer.getToken(token_id)
@@ -350,5 +360,13 @@ for n_embd, n_head in model_sizes:
 
     generated_bytes = b''.join(genTokens)
     generated_text = generated_bytes.decode('utf-8', errors='replace')
+    generated_text = generated_text + '\n'
 
     print(generated_text)
+
+print(
+    f"Number of layers={best_config['n_layer']}, "
+    f"Iteration {best_config['iteration']}, "
+    f"Validation loss = {min_validation_loss:.4f}, "
+    f"Training loss = {training_loss:.4f}"
+)
