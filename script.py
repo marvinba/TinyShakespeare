@@ -15,14 +15,14 @@ with open('input.txt', 'r', encoding='utf-8') as f:
 #hyperparameters
 batch_size = 64
 block_size = 256
-max_iters = 8000
+max_iters = 5000
 eval_interval = 500
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embd = 320
 n_head = 8
 n_layer = 4
-dropout = 0.25
+dropouts = [0.20, 0.25, 0.30]
 learning_rate = 3e-4
 vocab_size = 1000
 dialogue_id = 256
@@ -298,69 +298,72 @@ def estimate_loss(model):
 
 min_validation_loss = float('inf')
 
-model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
+for dropout in dropouts:
 
-optimizer = torch.optim.AdamW(
-    model.parameters(),
-    lr=learning_rate
-)
+    model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
 
-scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-    optimizer,
-    T_max=max_iters
-)
+    optimizer = torch.optim.AdamW(
+        model.parameters(),
+        lr=learning_rate
+    )
 
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=max_iters
+    )
 
-for iter in range(max_iters+1):  
+    for iter in range(max_iters+1):  
 
-    if iter % eval_interval == 0:
-        losses = estimate_loss(model)
+        if iter % eval_interval == 0:
+            losses = estimate_loss(model)
 
-        print(
-            f"Number of layers={n_layer}, "
-            f"Iteration {iter}, "
-            f"Training loss = {losses['train']:.4f}, "
-            f"Validation loss = {losses['val']:.4f}"
-        )
+            print(
+                f"Dropout={dropout}, "
+                f"Iteration {iter}, "
+                f"Training loss = {losses['train']:.4f}, "
+                f"Validation loss = {losses['val']:.4f}"
+            )
 
-        if losses['val'] < min_validation_loss:
-            min_validation_loss = losses['val']
-            training_loss = losses['train']
+            if losses['val'] < min_validation_loss:
+                min_validation_loss = losses['val']
+                training_loss = losses['train']
 
-            best_config = {
-                'iteration': iter
-            }
+                best_config = {
+                    'dropout': dropout,
+                    'iteration': iter
+                }
 
-    if iter == max_iters:
-        break
-                
-    batch_ids, target_ids = get_batch(train_data)
+        if iter == max_iters:
+            break
+                    
+        batch_ids, target_ids = get_batch(train_data)
 
-    #Forward pass
-    logits, loss = model(batch_ids, target_ids)
+        #Forward pass
+        logits, loss = model(batch_ids, target_ids)
 
-    #Backpropagation
-    optimizer.zero_grad()
-    loss.backward()
+        #Backpropagation
+        optimizer.zero_grad()
+        loss.backward()
 
-    #Update weights and decay learning rate
-    optimizer.step()
-    scheduler.step()
+        #Update weights and decay learning rate
+        optimizer.step()
+        scheduler.step()
             
-genIds = model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
-genTokens = [
-    tokenizer.getToken(token_id)
-    for token_id in genIds[0].tolist()
-    if token_id != dialogue_id
-]
+    genIds = model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
+    genTokens = [
+        tokenizer.getToken(token_id)
+        for token_id in genIds[0].tolist()
+        if token_id != dialogue_id
+    ]
 
-generated_bytes = b''.join(genTokens)
-generated_text = generated_bytes.decode('utf-8', errors='replace')
-generated_text = generated_text + '\n'
+    generated_bytes = b''.join(genTokens)
+    generated_text = generated_bytes.decode('utf-8', errors='replace')
+    generated_text = generated_text + '\n'
 
-print(generated_text)
+    print(generated_text)
 
 print(
+    f"Dropout={best_config['dropout']}, "
     f"Iteration {best_config['iteration']}, "
     f"Validation loss = {min_validation_loss:.4f}, "
     f"Training loss = {training_loss:.4f}"
