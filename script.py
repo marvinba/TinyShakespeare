@@ -15,13 +15,13 @@ with open('input.txt', 'r', encoding='utf-8') as f:
 #hyperparameters
 batch_size = 64
 block_size = 256
-max_iters = 5000
+max_iters = 8000
 eval_interval = 500
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embd = 320
 n_head = 8
-n_layers = [4, 6, 8]
+n_layer = 4
 dropout = 0.25
 learning_rate = 3e-4
 vocab_size = 1000
@@ -297,75 +297,70 @@ def estimate_loss(model):
     return losses
 
 min_validation_loss = float('inf')
-for n_layer in n_layers: 
 
-    model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
+model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=learning_rate
-    )
+optimizer = torch.optim.AdamW(
+    model.parameters(),
+    lr=learning_rate
+)
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=max_iters
-    )
+scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+    optimizer,
+    T_max=max_iters
+)
 
-    
-    for iter in range(max_iters+1):  
 
-        if iter % eval_interval == 0:
-            losses = estimate_loss(model)
+for iter in range(max_iters+1):  
 
-            print(
-                f"Number of layers={n_layer}, "
-                f"Iteration {iter}, "
-                f"Training loss = {losses['train']:.4f}, "
-                f"Validation loss = {losses['val']:.4f}"
-            )
+    if iter % eval_interval == 0:
+        losses = estimate_loss(model)
 
-            if losses['val'] < min_validation_loss:
-                min_validation_loss = losses['val']
-                training_loss = losses['train']
+        print(
+            f"Number of layers={n_layer}, "
+            f"Iteration {iter}, "
+            f"Training loss = {losses['train']:.4f}, "
+            f"Validation loss = {losses['val']:.4f}"
+        )
 
-                best_config = {
-                    'iteration': iter,
-                    'n_layer': n_layer,
-                    'n_embd': n_embd,
-                    'n_head': n_head
-                }
+        if losses['val'] < min_validation_loss:
+            min_validation_loss = losses['val']
+            training_loss = losses['train']
 
-        if iter == max_iters:
-            break
-                    
-        batch_ids, target_ids = get_batch(train_data)
+            best_config = {
+                'iteration': iter
+            }
 
-        #Forward pass
-        logits, loss = model(batch_ids, target_ids)
+    if iter == max_iters:
+        break
+                
+    batch_ids, target_ids = get_batch(train_data)
 
-        #Backpropagation
-        optimizer.zero_grad()
-        loss.backward()
+    #Forward pass
+    logits, loss = model(batch_ids, target_ids)
 
-        #Update weights and decay learning rate
-        optimizer.step()
-        scheduler.step()
+    #Backpropagation
+    optimizer.zero_grad()
+    loss.backward()
+
+    #Update weights and decay learning rate
+    optimizer.step()
+    scheduler.step()
             
-    genIds = model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
-    genTokens = [
-        tokenizer.getToken(token_id)
-        for token_id in genIds[0].tolist()
-        if token_id != dialogue_id
-    ]
+genIds = model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
+genTokens = [
+    tokenizer.getToken(token_id)
+    for token_id in genIds[0].tolist()
+    if token_id != dialogue_id
+]
 
-    generated_bytes = b''.join(genTokens)
-    generated_text = generated_bytes.decode('utf-8', errors='replace')
-    generated_text = generated_text + '\n'
+generated_bytes = b''.join(genTokens)
+generated_text = generated_bytes.decode('utf-8', errors='replace')
+generated_text = generated_text + '\n'
 
-    print(generated_text)
+print(generated_text)
 
 print(
-    f"Number of layers={best_config['n_layer']}, "
     f"Iteration {best_config['iteration']}, "
     f"Validation loss = {min_validation_loss:.4f}, "
     f"Training loss = {training_loss:.4f}"
