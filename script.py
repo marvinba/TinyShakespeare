@@ -13,7 +13,7 @@ with open('input.txt', 'r', encoding='utf-8') as f:
     text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', dialogueStr, text)
     
 #hyperparameters
-batch_size = 64
+batch_sizes = [32, 64, 128]
 block_size = 256
 max_iters = 5000
 eval_interval = 500
@@ -26,7 +26,7 @@ dropout = 0.30
 learning_rate = 3e-4
 vocab_size = 1000
 dialogue_id = 256
-weight_decays = [0.0, 0.01, 0.05, 0.1]
+weight_decay = 0.0
 
 #split dataset
 split_idx = int(0.9 * len(text))
@@ -242,7 +242,7 @@ class Block(nn.Module):
         x = x + self.ffwd(self.ln2(x))
         return x
 
-def get_batch(encoded_data):
+def get_batch(encoded_data, batch_size):
     batch_ids = []
     target_ids = []
 
@@ -283,7 +283,7 @@ def estimate_loss(model):
 
             for _ in range(eval_iters):
 
-                batch_ids, target_ids = get_batch(data)
+                batch_ids, target_ids = get_batch(data, batch_size)
 
                 #Forward pass
                 _, loss = model(batch_ids, target_ids)
@@ -299,7 +299,7 @@ def estimate_loss(model):
 
 min_validation_loss = float('inf')
 
-for weight_decay in weight_decays:
+for batch_size in batch_sizes:
 
     model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
 
@@ -320,7 +320,7 @@ for weight_decay in weight_decays:
             losses = estimate_loss(model)
 
             print(
-                f"Weight Decay = {weight_decay}, "
+                f"Batch size = {batch_size}, "
                 f"Iteration {iter}, "
                 f"Training loss = {losses['train']:.4f}, "
                 f"Validation loss = {losses['val']:.4f}"
@@ -331,14 +331,14 @@ for weight_decay in weight_decays:
                 training_loss = losses['train']
 
                 best_config = {
-                    'weight_decay': weight_decay,
+                    'batch_size': batch_size,
                     'iteration': iter
                 }
 
         if iter == max_iters:
             break
                     
-        batch_ids, target_ids = get_batch(train_data)
+        batch_ids, target_ids = get_batch(train_data, batch_size)
 
         #Forward pass
         logits, loss = model(batch_ids, target_ids)
@@ -365,7 +365,7 @@ for weight_decay in weight_decays:
     print(generated_text)
 
 print("Configuration with lowest validation:\n"
-    f"Weight Decay = {best_config['weight_decay']}, "
+    f"Batch Size = {best_config['batch_size']}, "
     f"Iteration {best_config['iteration']}, "
     f"Validation loss = {min_validation_loss:.4f}, "
     f"Training loss = {training_loss:.4f}"
