@@ -22,10 +22,11 @@ eval_iters = 200
 n_embd = 320
 n_head = 8
 n_layer = 4
-dropouts = [0.30, 0.35, 0.40]
+dropout = 0.30
 learning_rate = 3e-4
 vocab_size = 1000
 dialogue_id = 256
+weight_decays = [0.0, 0.01, 0.05, 0.1]
 
 #split dataset
 split_idx = int(0.9 * len(text))
@@ -298,13 +299,14 @@ def estimate_loss(model):
 
 min_validation_loss = float('inf')
 
-for dropout in dropouts:
+for weight_decay in weight_decays:
 
     model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
 
     optimizer = torch.optim.AdamW(
         model.parameters(),
-        lr=learning_rate
+        lr=learning_rate,
+        weight_decay=weight_decay
     )
 
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
@@ -318,7 +320,7 @@ for dropout in dropouts:
             losses = estimate_loss(model)
 
             print(
-                f"Dropout={dropout}, "
+                f"Weight Decay = {weight_decay}, "
                 f"Iteration {iter}, "
                 f"Training loss = {losses['train']:.4f}, "
                 f"Validation loss = {losses['val']:.4f}"
@@ -329,7 +331,7 @@ for dropout in dropouts:
                 training_loss = losses['train']
 
                 best_config = {
-                    'dropout': dropout,
+                    'weight_decay': weight_decay,
                     'iteration': iter
                 }
 
@@ -362,8 +364,8 @@ for dropout in dropouts:
 
     print(generated_text)
 
-print(
-    f"Dropout={best_config['dropout']}, "
+print("Configuration with lowest validation:\n"
+    f"Weight Decay = {best_config['weight_decay']}, "
     f"Iteration {best_config['iteration']}, "
     f"Validation loss = {min_validation_loss:.4f}, "
     f"Training loss = {training_loss:.4f}"
