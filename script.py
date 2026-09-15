@@ -13,7 +13,7 @@ with open('input.txt', 'r', encoding='utf-8') as f:
     text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', dialogueStr, text)
     
 #hyperparameters
-batch_sizes = [32, 64, 128]
+batch_size = 64
 block_size = 256
 max_iters = 5000
 eval_interval = 500
@@ -27,6 +27,7 @@ learning_rate = 3e-4
 vocab_size = 1000
 dialogue_id = 256
 weight_decay = 0.0
+warmup_iters = [0, 250, 500]
 
 #split dataset
 split_idx = int(0.9 * len(text))
@@ -299,7 +300,7 @@ def estimate_loss(model):
 
 min_validation_loss = float('inf')
 
-for batch_size in batch_sizes:
+for warmup_iter in warmup_iters:
 
     model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
 
@@ -309,10 +310,30 @@ for batch_size in batch_sizes:
         weight_decay=weight_decay
     )
 
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-        optimizer,
-        T_max=max_iters
-    )
+    if warmup_iter == 0:
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=max_iters
+        )
+
+    else:
+        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+            optimizer,
+            start_factor=1e-3,
+            end_factor=1.0,
+            total_iters=warmup_iter
+        )
+
+        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=max_iters - warmup_iter
+        )
+
+        scheduler = torch.optim.lr_scheduler.SequentialLR(
+            optimizer,
+            schedulers=[warmup_scheduler, cosine_scheduler],
+            milestones=[warmup_iter]
+        )
 
     for iter in range(max_iters+1):  
 
@@ -320,7 +341,7 @@ for batch_size in batch_sizes:
             losses = estimate_loss(model)
 
             print(
-                f"Batch size = {batch_size}, "
+                f"Warmup Iterations = {warmup_iter}, "
                 f"Iteration {iter}, "
                 f"Training loss = {losses['train']:.4f}, "
                 f"Validation loss = {losses['val']:.4f}"
@@ -331,7 +352,7 @@ for batch_size in batch_sizes:
                 training_loss = losses['train']
 
                 best_config = {
-                    'batch_size': batch_size,
+                    'warmup_iters': warmup_iter,
                     'iteration': iter
                 }
 
@@ -365,7 +386,7 @@ for batch_size in batch_sizes:
     print(generated_text)
 
 print("Configuration with lowest validation:\n"
-    f"Batch Size = {best_config['batch_size']}, "
+    f"Warmup Iterations = {best_config['warmup_iters']}, "
     f"Iteration {best_config['iteration']}, "
     f"Validation loss = {min_validation_loss:.4f}, "
     f"Training loss = {training_loss:.4f}"
