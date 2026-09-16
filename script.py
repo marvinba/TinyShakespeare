@@ -27,7 +27,7 @@ learning_rate = 3e-4
 vocab_size = 1000
 dialogue_id = 256
 weight_decay = 0.0
-warmup_iters = [0, 250, 500]
+warmup_iter = 250
 
 #split dataset
 split_idx = int(0.9 * len(text))
@@ -300,93 +300,90 @@ def estimate_loss(model):
 
 min_validation_loss = float('inf')
 
-for warmup_iter in warmup_iters:
+model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
 
-    model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
+optimizer = torch.optim.AdamW(
+    model.parameters(),
+    lr=learning_rate,
+    weight_decay=weight_decay
+)
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=learning_rate,
-        weight_decay=weight_decay
+if warmup_iter == 0:
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=max_iters
     )
 
-    if warmup_iter == 0:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=max_iters
+else:
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+        optimizer,
+        start_factor=1e-3,
+        end_factor=1.0,
+        total_iters=warmup_iter
+    )
+
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=max_iters - warmup_iter
+    )
+
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_iter]
+    )
+
+for iter in range(max_iters+1):  
+
+    if iter % eval_interval == 0:
+        losses = estimate_loss(model)
+
+        print(
+            f"Iteration {iter}, "
+            f"Training loss = {losses['train']:.4f}, "
+            f"Validation loss = {losses['val']:.4f}"
         )
 
-    else:
-        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
-            optimizer,
-            start_factor=1e-3,
-            end_factor=1.0,
-            total_iters=warmup_iter
-        )
+        if losses['val'] < min_validation_loss:
+            min_validation_loss = losses['val']
+            training_loss = losses['train']
 
-        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=max_iters - warmup_iter
-        )
+            best_config = {
+                'iteration': iter
+            }
 
-        scheduler = torch.optim.lr_scheduler.SequentialLR(
-            optimizer,
-            schedulers=[warmup_scheduler, cosine_scheduler],
-            milestones=[warmup_iter]
-        )
+    if iter == max_iters:
+        break
+                
+    batch_ids, target_ids = get_batch(train_data, batch_size)
 
-    for iter in range(max_iters+1):  
+    #Forward pass
+    logits, loss = model(batch_ids, target_ids)
 
-        if iter % eval_interval == 0:
-            losses = estimate_loss(model)
+    #Backpropagation
+    optimizer.zero_grad()
+    loss.backward()
 
-            print(
-                f"Warmup Iterations = {warmup_iter}, "
-                f"Iteration {iter}, "
-                f"Training loss = {losses['train']:.4f}, "
-                f"Validation loss = {losses['val']:.4f}"
-            )
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-            if losses['val'] < min_validation_loss:
-                min_validation_loss = losses['val']
-                training_loss = losses['train']
-
-                best_config = {
-                    'warmup_iters': warmup_iter,
-                    'iteration': iter
-                }
-
-        if iter == max_iters:
-            break
-                    
-        batch_ids, target_ids = get_batch(train_data, batch_size)
-
-        #Forward pass
-        logits, loss = model(batch_ids, target_ids)
-
-        #Backpropagation
-        optimizer.zero_grad()
-        loss.backward()
-
-        #Update weights and decay learning rate
-        optimizer.step()
-        scheduler.step()
+    #Update weights and decay learning rate
+    optimizer.step()
+    scheduler.step()
             
-    genIds = model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
-    genTokens = [
-        tokenizer.getToken(token_id)
-        for token_id in genIds[0].tolist()
-        if token_id != dialogue_id
-    ]
+genIds = model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
+genTokens = [
+    tokenizer.getToken(token_id)
+    for token_id in genIds[0].tolist()
+    if token_id != dialogue_id
+]
 
-    generated_bytes = b''.join(genTokens)
-    generated_text = generated_bytes.decode('utf-8', errors='replace')
-    generated_text = generated_text + '\n'
+generated_bytes = b''.join(genTokens)
+generated_text = generated_bytes.decode('utf-8', errors='replace')
+generated_text = generated_text + '\n'
 
-    print(generated_text)
+print(generated_text)
 
 print("Configuration with lowest validation:\n"
-    f"Warmup Iterations = {best_config['warmup_iters']}, "
     f"Iteration {best_config['iteration']}, "
     f"Validation loss = {min_validation_loss:.4f}, "
     f"Training loss = {training_loss:.4f}"
