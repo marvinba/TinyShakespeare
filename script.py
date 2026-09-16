@@ -220,7 +220,7 @@ class FeedForward(nn.Module):
         super().__init__()
         self.net = nn.Sequential(
             nn.Linear(n_embd, n_embd * 4),
-            nn.ReLU(),
+            nn.GELU(),
             nn.Linear(n_embd * 4, n_embd),
             nn.Dropout(dropout)
         )
