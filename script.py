@@ -15,7 +15,7 @@ with open('input.txt', 'r', encoding='utf-8') as f:
 #hyperparameters
 batch_size = 64
 block_size = 256
-max_iters = 5000
+max_iters = 7000
 eval_interval = 500
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
