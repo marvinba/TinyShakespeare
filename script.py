@@ -15,7 +15,7 @@ with open('input.txt', 'r', encoding='utf-8') as f:
 #hyperparameters
 batch_size = 64
 block_size = 256
-max_iters = 7000
+max_iters = 5000
 eval_interval = 500
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
@@ -155,6 +155,9 @@ class TransformerModel(nn.Module):
         self.blocks = nn.Sequential(*[Block(dropout, n_embd, n_head) for _ in range(n_layer)])
         self.ln_f = nn.LayerNorm(n_embd) #final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
+
+        # Weight tying
+        self.lm_head.weight = self.token_embedding_table.weight
 
     def forward(self, token_ids, targets=None):
         B, T = token_ids.shape
