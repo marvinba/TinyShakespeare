@@ -271,7 +271,6 @@ def get_batch(encoded_data, batch_size):
 def estimate_loss(model):
     
     losses = {}
-    stds = {}
 
     #Put model into evaluation mode
     model.eval()
@@ -282,26 +281,22 @@ def estimate_loss(model):
         for split, data in [('train', train_data), ('val', val_data)]:
 
             split_losses = []
-            split_stds = []
 
             for _ in range(eval_iters):
 
                 batch_ids, target_ids = get_batch(data, batch_size)
 
                 #Forward pass
-                logits , loss = model(batch_ids, target_ids)
-                logit_std = logits.std().item()
+                _ , loss = model(batch_ids, target_ids)
 
                 split_losses.append(loss.item())
-                split_stds.append(logit_std)
 
             losses[split] = torch.tensor(split_losses).mean()
-            stds[split] = torch.tensor(split_stds).mean()
 
     # Put model back into training mode
     model.train()
 
-    return losses, stds
+    return losses
 
 min_validation_loss = float('inf')
 
@@ -341,20 +336,12 @@ else:
 for iter in range(max_iters+1):  
 
     if iter % eval_interval == 0:
-        losses, stds = estimate_loss(model)
-
-        current_lr = optimizer.param_groups[0]['lr']
-        weight_std = model.token_embedding_table.weight.std().item()
-        weight_norm = model.token_embedding_table.weight.norm().item()
+        losses = estimate_loss(model)
 
         print(
             f"Iteration {iter}, "
             f"Training loss = {losses['train']:.4f}, "
-            f"Validation loss = {losses['val']:.4f}, "
-            f"Learning rate = {current_lr:.8f}, "
-            f"Weight std = {weight_std:.4f}, "
-            f"Weight norm = {weight_norm:.4f}, "
-            f"Logit std = {stds['val']:.4f}"
+            f"Validation loss = {losses['val']:.4f}"
         )
 
         if losses['val'] < min_validation_loss:
