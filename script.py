@@ -156,6 +156,18 @@ class TransformerModel(nn.Module):
         self.ln_f = nn.LayerNorm(n_embd) #final layer norm
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
+        self.apply(self._init_weights)
+
+    def _init_weights(self, module):
+        if isinstance(module, nn.Linear):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
+            if module.bias is not None:
+                nn.init.zeros_(module.bias)
+
+        elif isinstance(module, nn.Embedding):
+            nn.init.normal_(module.weight, mean=0.0, std=0.02)
+
     def forward(self, token_ids, targets=None):
         B, T = token_ids.shape
 
