@@ -364,6 +364,8 @@ for iter in range(max_iters+1):
                 'iteration': iter
             }
 
+            torch.save(model.state_dict(), 'best_model.pt')
+
     if iter == max_iters:
         break
                 
@@ -381,6 +383,8 @@ for iter in range(max_iters+1):
     #Update weights and decay learning rate
     optimizer.step()
     scheduler.step()
+
+model.load_state_dict(torch.load('best_model.pt', weights_only=True))    
             
 genIds = model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
 genTokens = [
