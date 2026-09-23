@@ -23,7 +23,7 @@ n_embd = 320
 n_head = 8
 n_layer = 4
 #dropout = 0.30
-dropouts = [0.35, 0.40]
+dropout = 0.40
 learning_rate = 3e-4
 vocab_size = 1000
 dialogue_id = 256
@@ -311,87 +311,83 @@ def estimate_loss(model):
 
     return losses
 
-min_overall_val_loss = float('inf')
+#min_overall_val_loss = float('inf')
 
-for dropout in dropouts:
-    min_validation_loss = float('inf')
-    model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
+min_validation_loss = float('inf')
+model = TransformerModel(dropout, n_embd, n_head, n_layer).to(device)
 
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=learning_rate,
-        weight_decay=weight_decay
+optimizer = torch.optim.AdamW(
+    model.parameters(),
+    lr=learning_rate,
+    weight_decay=weight_decay
+)
+
+if warmup_iter == 0:
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=max_iters
     )
 
-    if warmup_iter == 0:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=max_iters
+else:
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+        optimizer,
+        start_factor=1e-3,
+        end_factor=1.0,
+        total_iters=warmup_iter
+    )
+
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=max_iters - warmup_iter
+    )
+
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_iter]
+    )
+
+
+for iter in range(max_iters+1):  
+
+    if iter % eval_interval == 0:
+        losses = estimate_loss(model)
+
+        print(
+            f"Iteration {iter}, "
+            f"Training loss = {losses['train']:.4f}, "
+            f"Validation loss = {losses['val']:.4f}, "
+            f"Dropout = {dropout:.2f}\n"
         )
 
-    else:
-        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
-            optimizer,
-            start_factor=1e-3,
-            end_factor=1.0,
-            total_iters=warmup_iter
-        )
+        if losses['val'] < min_validation_loss:
+            min_validation_loss = losses['val']
+            training_loss = losses['train']
 
-        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=max_iters - warmup_iter
-        )
+            best_config = {
+                'iteration': iter,
+                'dropout': dropout
+            }
 
-        scheduler = torch.optim.lr_scheduler.SequentialLR(
-            optimizer,
-            schedulers=[warmup_scheduler, cosine_scheduler],
-            milestones=[warmup_iter]
-        )
+            torch.save(model.state_dict(), 'best_model.pt')
 
+    if iter == max_iters:
+        break
+                
+    batch_ids, target_ids = get_batch(train_data, batch_size)
 
-    for iter in range(max_iters+1):  
+    #Forward pass
+    logits, loss = model(batch_ids, target_ids)
 
-        if iter % eval_interval == 0:
-            losses = estimate_loss(model)
+    #Backpropagation
+    optimizer.zero_grad()
+    loss.backward()
 
-            print(
-                f"Iteration {iter}, "
-                f"Training loss = {losses['train']:.4f}, "
-                f"Validation loss = {losses['val']:.4f}, "
-                f"Dropout = {dropout:.2f}"
-            )
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-            if losses['val'] < min_validation_loss:
-                min_validation_loss = losses['val']
-
-                if min_validation_loss < min_overall_val_loss:
-                    min_overall_val_loss = min_validation_loss
-                    training_loss = losses['train']
-
-                    best_config = {
-                        'iteration': iter,
-                        'dropout': dropout
-                    }
-
-                    torch.save(model.state_dict(), 'best_model.pt')
-
-        if iter == max_iters:
-            break
-                    
-        batch_ids, target_ids = get_batch(train_data, batch_size)
-
-        #Forward pass
-        logits, loss = model(batch_ids, target_ids)
-
-        #Backpropagation
-        optimizer.zero_grad()
-        loss.backward()
-
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-
-        #Update weights and decay learning rate
-        optimizer.step()
-        scheduler.step()
+    #Update weights and decay learning rate
+    optimizer.step()
+    scheduler.step()
 
 model.load_state_dict(torch.load('best_model.pt', weights_only=True))    
             
@@ -412,5 +408,5 @@ print("Configuration with lowest validation:\n"
     f"Iteration {best_config['iteration']}, "
     f"Dropout = {best_config['dropout']:.2f}, "
     f"Training loss = {training_loss:.4f}, "
-    f"Validation loss = {min_overall_val_loss:.4f}"
+    f"Validation loss = {min_validation_loss:.4f}"
 )
