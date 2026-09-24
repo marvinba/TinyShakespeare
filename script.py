@@ -29,7 +29,7 @@ vocab_size = 1000
 dialogue_id = 256
 weight_decay = 0.05
 warmup_iter = 250
-label_smoothings = [0.0, 0.05, 0.10]
+label_smoothings = [0.10]
 
 #split dataset
 split_idx = int(0.9 * len(text))
