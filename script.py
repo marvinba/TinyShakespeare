@@ -27,7 +27,7 @@ dropout = 0.40
 learning_rate = 3e-4
 vocab_size = 1000
 dialogue_id = 256
-weight_decays = [0.01, 0.05, 0.10]
+weight_decays = [0.05]
 warmup_iter = 250
 
 #split dataset
