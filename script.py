@@ -22,9 +22,8 @@ eval_iters = 200
 n_embd = 320
 n_head = 8
 n_layer = 4
-#dropout = 0.30
 dropout = 0.40
-learning_rates = [1e-4, 3e-4, 5e-4]
+learning_rate = 3e-4
 vocab_size = 1000
 dialogue_id = 256
 weight_decay = 0.05
@@ -313,89 +312,87 @@ def estimate_loss(model):
 
     return losses
 
-min_overall_val_loss = float('inf')
+#min_overall_val_loss = float('inf')
 
-for learning_rate in learning_rates:
-    min_val_loss = float('inf')
 
-    model = TransformerModel(dropout, n_embd, n_head, n_layer, label_smoothing).to(device)
-    optimizer = torch.optim.AdamW(
-        model.parameters(),
-        lr=learning_rate,
-        weight_decay=weight_decay
+min_val_loss = float('inf')
+
+model = TransformerModel(dropout, n_embd, n_head, n_layer, label_smoothing).to(device)
+optimizer = torch.optim.AdamW(
+    model.parameters(),
+    lr=learning_rate,
+    weight_decay=weight_decay
+)
+
+if warmup_iter == 0:
+    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=max_iters
     )
 
-    if warmup_iter == 0:
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=max_iters
+else:
+    warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
+        optimizer,
+        start_factor=1e-3,
+        end_factor=1.0,
+        total_iters=warmup_iter
+    )
+
+    cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+        optimizer,
+        T_max=max_iters - warmup_iter
+    )
+
+    scheduler = torch.optim.lr_scheduler.SequentialLR(
+        optimizer,
+        schedulers=[warmup_scheduler, cosine_scheduler],
+        milestones=[warmup_iter]
+    )
+
+
+for iter in range(max_iters+1):  
+
+    if iter % eval_interval == 0:
+        losses = estimate_loss(model)
+
+        print(
+            f"Iteration {iter}, "
+            f"Training loss = {losses['train']:.4f}, "
+            f"Validation loss = {losses['val']:.4f}\n"
         )
 
-    else:
-        warmup_scheduler = torch.optim.lr_scheduler.LinearLR(
-            optimizer,
-            start_factor=1e-3,
-            end_factor=1.0,
-            total_iters=warmup_iter
-        )
+        if losses['val'] < min_val_loss:
+            min_val_loss = losses['val']
+            
 
-        cosine_scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer,
-            T_max=max_iters - warmup_iter
-        )
+            #if min_val_loss < min_overall_val_loss:
+                #min_overall_val_loss = min_val_loss
 
-        scheduler = torch.optim.lr_scheduler.SequentialLR(
-            optimizer,
-            schedulers=[warmup_scheduler, cosine_scheduler],
-            milestones=[warmup_iter]
-        )
+            training_loss = losses['train']
 
+            best_config = {
+                'iteration': iter
+            }
 
-    for iter in range(max_iters+1):  
+            torch.save(model.state_dict(), 'best_model.pt')
 
-        if iter % eval_interval == 0:
-            losses = estimate_loss(model)
-
-            print(
-                f"Iteration {iter}, "
-                f"Learning Rate {learning_rate:.4f}, "
-                f"Training loss = {losses['train']:.4f}, "
-                f"Validation loss = {losses['val']:.4f}\n"
-            )
-
-            if losses['val'] < min_val_loss:
-                min_val_loss = losses['val']
+    if iter == max_iters:
+        break
                 
+    batch_ids, target_ids = get_batch(train_data, batch_size)
 
-                if min_val_loss < min_overall_val_loss:
-                    min_overall_val_loss = min_val_loss
+    #Forward pass
+    logits, loss = model(batch_ids, target_ids)
 
-                    training_loss = losses['train']
+    #Backpropagation
+    optimizer.zero_grad()
+    loss.backward()
 
-                    best_config = {
-                        'iteration': iter,
-                        'learning_rate': learning_rate
-                    }
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-                    torch.save(model.state_dict(), 'best_model.pt')
-
-        if iter == max_iters:
-            break
-                    
-        batch_ids, target_ids = get_batch(train_data, batch_size)
-
-        #Forward pass
-        logits, loss = model(batch_ids, target_ids)
-
-        #Backpropagation
-        optimizer.zero_grad()
-        loss.backward()
-
-        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-
-        #Update weights and decay learning rate
-        optimizer.step()
-        scheduler.step()
+    #Update weights and decay learning rate
+    optimizer.step()
+    scheduler.step()
 
 best_model = TransformerModel(dropout, n_embd, n_head, n_layer, label_smoothing).to(device)
 best_model.load_state_dict(torch.load('best_model.pt', weights_only=True))
@@ -416,7 +413,6 @@ print(generated_text)
 
 print("Configuration with lowest validation:\n"
     f"Iteration {best_config['iteration']}, "
-    f"Learning Rate {best_config['learning_rate']:.4f}, "
     f"Training loss = {training_loss:.4f}, "
-    f"Validation loss = {min_overall_val_loss:.4f}\n"
+    f"Validation loss = {min_val_loss:.4f}\n"
 )
