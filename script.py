@@ -21,8 +21,13 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 eval_iters = 200
 n_embd = 320
 n_head = 8
+<<<<<<< Updated upstream
 n_layers = [4, 6, 8]
 dropout = 0.25
+=======
+n_layers = [6]
+dropout = 0.40
+>>>>>>> Stashed changes
 learning_rate = 3e-4
 vocab_size = 1000
 dialogue_id = 256
