@@ -133,7 +133,7 @@ for iter in range(max_iters+1):
             best_train_loss = losses['train'].item()
             best_iter = iter
 
-            torch.save(model.state_dict(), 'best_model.pt')
+            torch.save(model.state_dict(), 'checkpoints/best_model.pt')
 
     if iter == max_iters:
         break
