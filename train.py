@@ -5,14 +5,15 @@ import random
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import torch.nn as nn
+from config import dialogueStr, dialogue_id, device, block_size, dropout, n_embd, n_head, n_layer, label_smoothing, learning_rate, weight_decay, max_iters, eval_interval, eval_iters, batch_size, warmup_iter
+from tokenizer import BPETokenizer
+from model import TransformerModel
 
 #load tokens from dataset
 with open('input.txt', 'r', encoding='utf-8') as f:
     text = '\n\n' + f.read();
     text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', dialogueStr, text)
     
-
-
 #split dataset
 split_idx = int(0.9 * len(text))
 split_idx = text.find("<Dialogue>", split_idx)
@@ -152,25 +153,3 @@ for iter in range(max_iters+1):
     optimizer.step()
     scheduler.step()
 
-best_model = TransformerModel(dropout, n_embd, n_head, n_layer, label_smoothing).to(device)
-best_model.load_state_dict(torch.load('best_model.pt', map_location=device, weights_only=True))
-best_model.eval()
-            
-genIds = best_model.generate(torch.tensor([[dialogue_id]],dtype=torch.long,device=device))
-genTokens = [
-    tokenizer.getToken(token_id)
-    for token_id in genIds[0].tolist()
-    if token_id != dialogue_id
-]
-
-generated_bytes = b''.join(genTokens)
-generated_text = generated_bytes.decode('utf-8', errors='replace')
-generated_text = generated_text + '\n'
-
-print(generated_text)
-
-print(
-    f"\nBest checkpoint: iteration {best_iter}\n"
-    f"Training loss = {best_train_loss:.4f}\n"
-    f"Validation loss = {min_val_loss:.4f}"
-)
