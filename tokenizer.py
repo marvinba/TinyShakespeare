@@ -81,3 +81,17 @@ class BPETokenizer():
     
     def getToken(self, token_id):
         return self.idToToken[token_id]
+    
+    def save(self, filepath):
+        torch.save({
+            'token_ids': self.token_ids,
+            'merges': self.merges,
+            'idToToken': self.idToToken,
+            'num_merges': self.num_merges
+        }, filepath)
+    def load(self, filepath):
+        checkpoint = torch.load(filepath, map_location='cpu', weights_only=True)
+        self.token_ids = checkpoint['token_ids']
+        self.merges = checkpoint['merges']
+        self.idToToken = checkpoint['idToToken']
+        self.num_merges = checkpoint['num_merges']
