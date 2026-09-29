@@ -4,7 +4,6 @@ import re as regExp
 import random
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
-import torch.nn as nn
 from config import dialogueStr, dialogue_id, device, block_size, dropout, n_embd, n_head, n_layer, label_smoothing, learning_rate, weight_decay, max_iters, eval_interval, eval_iters, batch_size, warmup_iter
 from tokenizer import BPETokenizer
 from model import TransformerModel
@@ -19,7 +18,6 @@ split_idx = int(0.9 * len(text))
 split_idx = text.find("<Dialogue>", split_idx)
 train_text = text[:split_idx]
 val_text = text[split_idx:]
-
 
 tokenizer = BPETokenizer(train_text)
 train_data = tokenizer.encode(train_text)
@@ -121,12 +119,6 @@ for iter in range(max_iters+1):
 
     if iter % eval_interval == 0:
         losses = estimate_loss(model)
-
-        print(
-            f"Iteration {iter}, "
-            f"Training loss = {losses['train']:.4f}, "
-            f"Validation loss = {losses['val']:.4f}\n"
-        )
 
         if losses['val'] < min_val_loss:
             min_val_loss = losses['val'].item()

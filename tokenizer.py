@@ -1,5 +1,5 @@
-from config import vocab_size, dialogue_id, dialogueStr
 import torch
+from config import vocab_size, dialogue_id, dialogueStr
 
 class BPETokenizer():
 

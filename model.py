@@ -1,3 +1,8 @@
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from config import block_size, device, vocab_size, dialogue_id
+
 class Head(nn.Module):
 
     def __init__(self, dropout, n_embd, head_size):
