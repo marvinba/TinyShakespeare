@@ -86,21 +86,25 @@ class BPETokenizer():
 
     def save(self, filepath):
        
-        idToIntJSON = {
+        tokenizerJSON = {
             "idToInt": {
                 token_id: list(token) 
                 for token_id, token in self.idToToken.items()
-            }
+            },
+            "merges": self.merges
         }
         
         with open(filepath, "w") as f:
-            json.dump(idToIntJSON, f, indent=4)
+            json.dump(tokenizerJSON, f, indent=4)
 
     def load(self, filepath):
         with open(filepath, "r") as f:
-            idToIntJSON = json.load(f)
+            tokenizerJSON = json.load(f)
 
         self.idToToken = {
-            int(token_id): bytes(byte_ints) for token_id, byte_ints in idToIntJSON["idToInt"].items()
+            int(token_id): bytes(byte_ints) for token_id, byte_ints in tokenizerJSON["idToInt"].items()
+        }
+        self.merges = {
+            int(token_id): tuple(pair) for token_id, pair in tokenizerJSON["merges"].items()
         }
         
