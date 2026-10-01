@@ -1,25 +1,27 @@
+import os
 import torch
-import numpy
 import re as regExp
-import random
-import torch.nn.functional as F
-import matplotlib.pyplot as plt
-from config import dialogueStr, dialogue_id, device, block_size, dropout, n_embd, n_head, n_layer, label_smoothing, learning_rate, weight_decay, max_iters, eval_interval, eval_iters, batch_size, warmup_iter
+
+from config import dialogueStr, device, block_size, dropout, n_embd, n_head, n_layer, label_smoothing, learning_rate, weight_decay, max_iters, eval_interval, eval_iters, batch_size, warmup_iter
+
 from tokenizer import BPETokenizer
 from model import TransformerModel
 
 #load tokens from dataset
 with open('input.txt', 'r', encoding='utf-8') as f:
-    text = '\n\n' + f.read();
+    text = '\n\n' + f.read()
     text = regExp.sub(r'[\n]{2}[\w ]+[:]{1}', dialogueStr, text)
     
 #split dataset
 split_idx = int(0.9 * len(text))
-split_idx = text.find("<Dialogue>", split_idx)
+split_idx = text.find(dialogueStr, split_idx)
 train_text = text[:split_idx]
 val_text = text[split_idx:]
 
+os.makedirs('checkpoints', exist_ok=True)
+
 tokenizer = BPETokenizer(train_text)
+tokenizer.save('checkpoints/tokenizer.json')
 train_data = tokenizer.encode(train_text)
 val_data = tokenizer.encode(val_text)
 
@@ -115,19 +117,19 @@ min_val_loss = float('inf')
 best_iter = 0
 best_train_loss = float('inf')
 
-for iter in range(max_iters+1):  
+for step in range(max_iters+1):  
 
-    if iter % eval_interval == 0:
+    if step % eval_interval == 0:
         losses = estimate_loss(model)
 
         if losses['val'] < min_val_loss:
             min_val_loss = losses['val'].item()
             best_train_loss = losses['train'].item()
-            best_iter = iter
+            best_iter = step
 
             torch.save(model.state_dict(), 'checkpoints/best_model.pt')
 
-    if iter == max_iters:
+    if step == max_iters:
         break
                 
     batch_ids, target_ids = get_batch(train_data, batch_size)

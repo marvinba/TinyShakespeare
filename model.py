@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from config import block_size, device, vocab_size, dialogue_id
+from config import block_size, vocab_size, dialogue_id
 
 class Head(nn.Module):
 
@@ -56,7 +56,7 @@ class TransformerModel(nn.Module):
         B, T = token_ids.shape
 
         tok_emb = self.token_embedding_table(token_ids)
-        pos_emb = self.pos_embedding_table(torch.arange(T,device=device))
+        pos_emb = self.pos_embedding_table(torch.arange(T,device=token_ids.device))
 
         x = tok_emb + pos_emb
         x = self.blocks(x)

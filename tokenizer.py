@@ -1,20 +1,22 @@
 import torch
+import json
 from config import vocab_size, dialogue_id, dialogueStr
 
 class BPETokenizer():
 
-    def __init__(self, data):
-        self.token_ids = list(data.encode("utf-8")) #list of ids of each byte        
-        self.merges = {}
-        self.idToToken = {}
-        self.num_merges = vocab_size - 257
-        self.replace_dialogueID(self.token_ids)
-        self.bpe_merge()
-        self.idsToTokens()
-        self.tokenToId = {
-            token: token_id
-            for token_id, token in self.idToToken.items()
-        }        
+    def __init__(self, data = None):
+        if data is not None:
+            self.token_ids = list(data.encode("utf-8")) #list of ids of each byte        
+            self.merges = {}
+            self.idToToken = {}
+            self.num_merges = vocab_size - 257
+            self.replace_dialogueID(self.token_ids)
+            self.bpe_merge()
+            self.idsToTokens()
+            self.tokenToId = {
+                token: token_id
+                for token_id, token in self.idToToken.items()
+            }        
       
     def replace_dialogueID(self, byteIDs):
         dialogueIDs = list(dialogueStr.encode("utf-8"))
@@ -81,17 +83,24 @@ class BPETokenizer():
     
     def getToken(self, token_id):
         return self.idToToken[token_id]
-    
+
     def save(self, filepath):
-        torch.save({
-            'token_ids': self.token_ids,
-            'merges': self.merges,
-            'idToToken': self.idToToken,
-            'num_merges': self.num_merges
-        }, filepath)
+       
+        idToIntJSON = {
+            "idToInt": {
+                token_id: list(token) 
+                for token_id, token in self.idToToken.items()
+            }
+        }
+        
+        with open(filepath, "w") as f:
+            json.dump(idToIntJSON, f, indent=4)
+
     def load(self, filepath):
-        checkpoint = torch.load(filepath, map_location='cpu', weights_only=True)
-        self.token_ids = checkpoint['token_ids']
-        self.merges = checkpoint['merges']
-        self.idToToken = checkpoint['idToToken']
-        self.num_merges = checkpoint['num_merges']
+        with open(filepath, "r") as f:
+            idToIntJSON = json.load(f)
+
+        self.idToToken = {
+            int(token_id): bytes(byte_ints) for token_id, byte_ints in idToIntJSON["idToInt"].items()
+        }
+        
